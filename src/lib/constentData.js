@@ -1,4 +1,5 @@
 import certificateImg from "@/app/api/helperfile/Images/CertificateImg";
+import headerImg from "@/app/api/helperfile/Images/headerImg";
 import logo from "@/app/api/helperfile/Images/logo";
 import semkariLogo from "@/app/api/helperfile/Images/semkariLogo";
 
@@ -15,7 +16,7 @@ export const TrsutData={
     regNo:null,
     logo:logo,
     RightLogo:null,
-    headerImg:"/Images/headerImg.png",
+    headerImg:headerImg,
     topTitle:[
         "॥ ॐ जय श्री गणेशाय नमः ॥",
         "।। श्री राधेकृष्नाय नमः ।।"
