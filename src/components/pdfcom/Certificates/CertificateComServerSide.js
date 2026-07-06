@@ -277,6 +277,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     borderRadius: 3,
     marginLeft: 2,
+    marginBottom: -20,
   },
   regCinText:{
     fontSize: 7.8,
@@ -284,9 +285,18 @@ const styles = StyleSheet.create({
      fontWeight: 'bold',
      letterSpacing: 0.2,
       marginBottom: 3,
+  },
+  remarkBox:{
+    position: 'absolute',
+    top: 220,
+    right: 20,
   }
 });
 const Certificate=({data,selectedProgram,fontPath})=>{
+
+const pendingJoinFees = !data?.joinFeesDone
+  ? Math.max((data?.joinFees || 0) - (data?.joinFeesPaidAmount || 0), 0)
+  : 0;
  return     <Page size={{ width: '210mm', height: '148mm' }} style={styles.page}>
       <View style={styles.outerBorder}>
         <Text style={styles.serialNumber}>{data?.registrationNumber}</Text>
@@ -344,7 +354,22 @@ const Certificate=({data,selectedProgram,fontPath})=>{
                 <Text style={styles.memberIdLabel}>सदस्य फोटो</Text>
               </View>
             )}
+   
+         
           </View>
+    {pendingJoinFees > 0 && (
+  <View style={styles.remarkBox}>
+    <Text
+      style={{
+        fontSize: 7,
+        color: '#8B0000',
+        fontWeight: 'bold',
+      }}
+    >
+      {`Remark: ₹${pendingJoinFees} PENDING`}
+    </Text>
+  </View>
+)}
 
           {/* Form Section */}
           <View style={styles.formSection}>
@@ -446,7 +471,7 @@ const Certificate=({data,selectedProgram,fontPath})=>{
           <View style={styles.footerSection}>
             {/* Left Side - Karyakarta */}
             <View style={styles.leftFooter}>
-              <Text style={styles.footerValue}>{data?.addedByName || '---'} ({data.agentPhone})</Text>
+              <Text style={styles.footerValue}>{data?.addedByName || '---'}</Text>
               <Text style={styles.footerLabel}>कार्यकर्ता </Text>
             </View>
 

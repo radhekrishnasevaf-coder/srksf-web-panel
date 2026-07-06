@@ -304,7 +304,13 @@ function MemberDetailsView({isModalVisible, handleCloseModal, showDeleteConfirm,
                     <Descriptions.Item label="Gotra">{selectedMember.gotra || '-'}</Descriptions.Item>
                     <Descriptions.Item label="Phone">{selectedMember.phone}</Descriptions.Item>
                     <Descriptions.Item label="Alternative Phone">{selectedMember.phoneAlt || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="Aadhaar Number">{selectedMember.aadhaarNo || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="Identity Document">
+                      {selectedMember.aadhaarNo
+                        ? `आधार: ${selectedMember.aadhaarNo}`
+                        : selectedMember.otherDocType
+                          ? `${selectedMember.otherDocType}: ${selectedMember.otherDocNumber || '-'}`
+                          : '-'}
+                    </Descriptions.Item>
                     <Descriptions.Item label="Guardian Aadhaar">{selectedMember.guardianAadharNo || '-'}</Descriptions.Item>
                     <Descriptions.Item label="Password">{selectedMember.password || '-'}</Descriptions.Item>
                   </Descriptions>
@@ -560,7 +566,7 @@ function MemberDetailsView({isModalVisible, handleCloseModal, showDeleteConfirm,
                     <div className="space-y-1">
                       <div>🔢 Application Number: <strong>{selectedMember.applicationNumber || '-'}</strong></div>
                       <div>🆔 Registration Number: <strong>{selectedMember.registrationNumber}</strong></div>
-                      <div>👤 Aadhaar: {selectedMember.aadhaarNo ? '✓ Verified' : '✗ Not provided'}</div>
+                      <div>👤 Aadhaar: {selectedMember.aadhaarNo ? '✓ Verified' : selectedMember.otherDocType ? `${selectedMember.otherDocType}: ${selectedMember.otherDocNumber}` : '✗ Not provided'}</div>
                       <div>👥 Guardian Aadhaar: {selectedMember.guardianAadharNo ? '✓ Provided' : '✗ Not provided'}</div>
                     </div>
                   </div>

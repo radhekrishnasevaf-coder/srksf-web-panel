@@ -60,6 +60,7 @@ const AddMember = () => {
   const [guardianDocument, setGuardianDocument] = useState([]);
   const [isAadhaarChecking, setIsAadhaarChecking] = useState(false);
   const [aadhaarError, setAadhaarError] = useState(null);
+  const [hasAadhaar, setHasAadhaar] = useState(true);
   // Extra Dynamic Fields State
   const [extraFields, setExtraFields] = useState([]);
   const [joinFeesPaymentType, setJoinFeesPaymentType] = useState(null);
@@ -96,6 +97,7 @@ const [closingDays, setClosingDays] = useState(null);
       setGuardianDocument([]);
       setExtraFields([]);
       setDistricts([]);
+      setHasAadhaar(true);
       setIsJoinFeesDone(false);
       setIsCopyFromExisting(false);
       setExistingMemberPhone('');
@@ -247,6 +249,10 @@ const [closingDays, setClosingDays] = useState(null);
     setStoredBirthDate(birthDate);
     setStoredJoinDate(joinDate);
     
+    // Determine if source member has Aadhaar or other document
+    const sourceHasAadhaar = !!member.aadhaarNo;
+    setHasAadhaar(sourceHasAadhaar);
+
     // Fill the form with existing member data
     const formValues = {
       displayName: member.displayName,
@@ -258,7 +264,9 @@ const [closingDays, setClosingDays] = useState(null);
       gotra: member.gotra || '',
       phone: member.phone,
       phoneAlt: member.phoneAlt || '',
-      aadhaarNo: member.aadhaarNo,
+      aadhaarNo: member.aadhaarNo || '',
+      otherDocType: member.otherDocType || '',
+      otherDocNumber: member.otherDocNumber || '',
       bobDate: birthDate,
       currentAddress: member.currentAddress,
       village: member.village,
@@ -454,7 +462,7 @@ const [closingDays, setClosingDays] = useState(null);
     const aadhaarNo = values.aadhaarNo;
     const programId = values.program;
     
-    if (aadhaarNo && programId) {
+    if (hasAadhaar && aadhaarNo && programId) {
       try {
         setIsAadhaarChecking(true);
         const programDocPath = `/users/${user.uid}/programs/${programId}`;
@@ -574,7 +582,9 @@ const [closingDays, setClosingDays] = useState(null);
         gotra: values.gotra || '',
         phone: values.phone,
         phoneAlt: values.phoneAlt || '',
-        aadhaarNo: values.aadhaarNo,
+        aadhaarNo: hasAadhaar ? values.aadhaarNo : '',
+        otherDocType: !hasAadhaar ? values.otherDocType : '',
+        otherDocNumber: !hasAadhaar ? values.otherDocNumber : '',
         applicationNumber: values.applicationNumber || "",
         bobDate: values.bobDate.format('DD-MM-YYYY'),
         currentAddress: values.currentAddress,
@@ -845,8 +855,9 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
                               setSelectedExistingMember(null);
                               setStoredBirthDate(null);
                               setStoredJoinDate(dayjs());
+                              setHasAadhaar(true);
                               form.resetFields(['displayName', 'fatherName', 'guardian', 'gender', 'guardianRelation', 
-                                'jati', 'gotra', 'phone', 'phoneAlt', 'aadhaarNo', 'bobDate', 'currentAddress', 
+                                'jati', 'gotra', 'phone', 'phoneAlt', 'aadhaarNo', 'otherDocType', 'otherDocNumber', 'bobDate', 'currentAddress', 
                                 'village', 'state', 'district', 'pinCode']);
                               form.setFieldsValue({
                                 dateJoin: dayjs()
@@ -976,25 +987,65 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item
-                      name="aadhaarNo"
-                      label="आधार संख्या"
-                      rules={[
-                        { required: true, message: 'आवश्यक' },
-                        { len: 12, message: '12 अंक होने चाहिए' },
-                        { pattern: /^[0-9]{12}$/, message: 'अमान्य आधार' }
-                      ]}
-                    >
-                      <Input
-                        prefix={<IdcardOutlined />}
-                        placeholder="12 अंकों का आधार"
-                        onBlur={handleAadhaarBlur}
-                        suffix={isAadhaarChecking ? <LoadingOutlined /> : null}
-                        loading={isAadhaarChecking}
-                      />
+                    <Form.Item label="आधार / दस्तावेज़">
+                      <Checkbox checked={hasAadhaar} onChange={(e) => {
+                        setHasAadhaar(e.target.checked);
+                        if (!e.target.checked) {
+                          form.setFieldsValue({ aadhaarNo: '' });
+                        } else {
+                          form.setFieldsValue({ otherDocType: '', otherDocNumber: '' });
+                        }
+                      }}>
+                        आधार कार्ड उपलब्ध है
+                      </Checkbox>
                     </Form.Item>
                   </Col>
                 </Row>
+
+                {hasAadhaar ? (
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        name="aadhaarNo"
+                        label="आधार संख्या"
+                        rules={[
+                          { required: true, message: 'आवश्यक' },
+                          { len: 12, message: '12 अंक होने चाहिए' },
+                          { pattern: /^[0-9]{12}$/, message: 'अमान्य आधार' }
+                        ]}
+                      >
+                        <Input
+                          prefix={<IdcardOutlined />}
+                          placeholder="12 अंकों का आधार"
+                          onBlur={handleAadhaarBlur}
+                          suffix={isAadhaarChecking ? <LoadingOutlined /> : null}
+                          loading={isAadhaarChecking}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                ) : (
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        name="otherDocType"
+                        label="दस्तावेज़ का प्रकार"
+                        rules={[{ required: true, message: 'आवश्यक' }]}
+                      >
+                        <Input prefix={<IdcardOutlined />} placeholder="उदा: वोटर आईडी, ड्राइविंग लाइसेंस" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        name="otherDocNumber"
+                        label="दस्तावेज़ संख्या"
+                        rules={[{ required: true, message: 'आवश्यक' }]}
+                      >
+                        <Input placeholder="दस्तावेज़ संख्या दर्ज करें" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
 
                 {/* आयु और कार्यक्रम विवरण */}
                 <Divider orientation="left">आयु और कार्यक्रम विवरण</Divider>

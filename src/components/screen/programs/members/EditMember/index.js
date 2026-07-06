@@ -65,6 +65,7 @@ const EditMember = ({ memberData, programId, onSuccess, setOpen, open }) => {
   const [extraFields, setExtraFields] = useState([]);
 
   const [districts, setDistricts] = useState([]);
+  const [hasAadhaar, setHasAadhaar] = useState(true);
 
   const getDecimalAge = (birthDate, joinDate) => {
     return dayjs(joinDate).diff(dayjs(birthDate), 'year', true);
@@ -223,7 +224,9 @@ useEffect(() => {
       gotra: memberData.gotra || '',
       phone: memberData.phone,
       phoneAlt: memberData.phoneAlt || '',
-      aadhaarNo: memberData.aadhaarNo,
+      aadhaarNo: memberData.aadhaarNo || '',
+      otherDocType: memberData.otherDocType || '',
+      otherDocNumber: memberData.otherDocNumber || '',
       bobDate: memberData.bobDate ? dayjs(memberData.bobDate, 'DD-MM-YYYY') : null,
       dateJoin: dateJoin,
       currentAddress: memberData.currentAddress,
@@ -250,6 +253,9 @@ useEffect(() => {
       formValues.customJoinFeesAmount = memberData?.joinFees || 0;
     }
 
+    // Set Aadhaar toggle based on whether Aadhaar number exists
+    setHasAadhaar(!!memberData.aadhaarNo);
+
     form.setFieldsValue(formValues);
   }
 }, [open, memberData, programList, form, selectedLocationGroup]);
@@ -269,6 +275,7 @@ useEffect(() => {
       setGuardianDocument([]);
       setExtraFields([]);
       setDistricts([]);
+      setHasAadhaar(true);
       setIsJoinFeesDone(false);
       setJoinFeesPaymentType(null);
       setCustomJoinFeesAmount(0);
@@ -469,7 +476,9 @@ console.log(values,'values')
         gotra: values.gotra || '',
         phone: values.phone,
         phoneAlt: values.phoneAlt || '',
-        aadhaarNo: values.aadhaarNo,
+        aadhaarNo: hasAadhaar ? values.aadhaarNo : '',
+        otherDocType: !hasAadhaar ? values.otherDocType : '',
+        otherDocNumber: !hasAadhaar ? values.otherDocNumber : '',
         applicationNumber: values.applicationNumber || "",
         bobDate: values.bobDate.format('DD-MM-YYYY'),
         currentAddress: values.currentAddress,
@@ -744,19 +753,59 @@ console.log(values,'values')
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item
-                  name="aadhaarNo"
-                  label="आधार संख्या"
-                  rules={[
-                    { required: true, message: 'आवश्यक' },
-                    { len: 12, message: '12 अंक होने चाहिए' },
-                    { pattern: /^[0-9]{12}$/, message: 'अमान्य आधार' }
-                  ]}
-                >
-                  <Input prefix={<IdcardOutlined />} placeholder="12 अंकों का आधार" />
+                <Form.Item label="आधार / दस्तावेज़">
+                  <Checkbox checked={hasAadhaar} onChange={(e) => {
+                    setHasAadhaar(e.target.checked);
+                    if (!e.target.checked) {
+                      form.setFieldsValue({ aadhaarNo: '' });
+                    } else {
+                      form.setFieldsValue({ otherDocType: '', otherDocNumber: '' });
+                    }
+                  }}>
+                    आधार कार्ड उपलब्ध है
+                  </Checkbox>
                 </Form.Item>
               </Col>
             </Row>
+
+            {hasAadhaar ? (
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item
+                    name="aadhaarNo"
+                    label="आधार संख्या"
+                    rules={[
+                      { required: true, message: 'आवश्यक' },
+                      { len: 12, message: '12 अंक होने चाहिए' },
+                      { pattern: /^[0-9]{12}$/, message: 'अमान्य आधार' }
+                    ]}
+                  >
+                    <Input prefix={<IdcardOutlined />} placeholder="12 अंकों का आधार" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            ) : (
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item
+                    name="otherDocType"
+                    label="दस्तावेज़ का प्रकार"
+                    rules={[{ required: true, message: 'आवश्यक' }]}
+                  >
+                    <Input prefix={<IdcardOutlined />} placeholder="उदा: वोटर आईडी, ड्राइविंग लाइसेंस" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item
+                    name="otherDocNumber"
+                    label="दस्तावेज़ संख्या"
+                    rules={[{ required: true, message: 'आवश्यक' }]}
+                  >
+                    <Input placeholder="दस्तावेज़ संख्या दर्ज करें" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            )}
 
             {/* आयु और कार्यक्रम विवरण */}
             <Divider orientation="left">आयु और कार्यक्रम विवरण</Divider>

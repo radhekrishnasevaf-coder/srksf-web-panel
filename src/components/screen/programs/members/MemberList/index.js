@@ -344,7 +344,14 @@ const MemberList = () => {
         },
         { field: 'village',       headerName: 'Village',      width: 100, cellDataType: 'text' },
         { field: 'addedByName', headerName: 'Created By', cellRenderer: ({ data }) => <div>{data.addedByName}</div> },
-        { field: 'aadhaarNo',   headerName: 'Aadhaar No', cellDataType: 'text' },
+        { field: 'aadhaarNo', headerName: 'Aadhaar No', width: 140, cellDataType: 'text' },
+        {
+            field: 'otherDocType', headerName: 'Other Doc', width: 160,
+            cellRenderer: ({ data }) => {
+                if (data.otherDocType) return <span><Tag color="orange">{data.otherDocType}</Tag> {data.otherDocNumber}</span>;
+                return '—';
+            }
+        },
         {
             field: 'payAmount', headerName: 'D Amount',
             cellRenderer: ({ data }) => (
