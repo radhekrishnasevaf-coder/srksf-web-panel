@@ -357,7 +357,7 @@ const pendingJoinFees = !data?.joinFeesDone
    
          
           </View>
-    {pendingJoinFees > 0 && (
+    {/* {pendingJoinFees > 0 && (
   <View style={styles.remarkBox}>
     <Text
       style={{
@@ -369,7 +369,7 @@ const pendingJoinFees = !data?.joinFeesDone
       {`Remark: ₹${pendingJoinFees} PENDING`}
     </Text>
   </View>
-)}
+)} */}
 
           {/* Form Section */}
           <View style={styles.formSection}>
