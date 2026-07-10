@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontFamily: 'NotoSansDevanagari',
     fontSize: 8.5,
-    color: '#000',
+    color: '#8B0000',
     textAlign: 'justify',
     lineHeight: 1.4,
     paddingHorizontal: 6,
@@ -477,7 +477,7 @@ const pendingJoinFees = !data?.joinFeesDone
 
             {/* Right Side - Signature */}
             <View style={styles.rightFooter}>
-              <Text style={styles.footerValue}>{TrsutData.name}</Text>
+              <Text style={styles.footerValue}>{TrsutData.trustPresident}</Text>
               <Text style={styles.footerLabel}>संस्थापक</Text>
               {/* <Text style={styles.signatureText}>हस्ताक्षर</Text> */}
             </View>
