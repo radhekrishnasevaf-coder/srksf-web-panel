@@ -320,7 +320,31 @@ const AgentManagement = ({ agentData = null, mode = 'add', onSuccess,isAgentDraw
       updatedAt: new Date()
     });
 
-    antMessage.success('Agent updated successfully!');
+    // Update agent name in all member documents added by this agent
+    const oldName = agentData.displayName || '';
+    const newName = values.name || '';
+    if (oldName !== newName) {
+      try {
+        const programsSnap = await getDocs(collection(db, 'users', adminUid, 'programs'));
+        const updatePromises = programsSnap.docs.map(async (programDoc) => {
+          const membersQuery = query(
+            collection(db, 'users', adminUid, 'programs', programDoc.id, 'members'),
+            where('agentId', '==', agentUid)
+          );
+          const memberSnap = await getDocs(membersQuery);
+          return Promise.all(
+            memberSnap.docs.map(m =>
+              updateDoc(doc(db, 'users', adminUid, 'programs', programDoc.id, 'members', m.id), { addedByName: newName })
+            )
+          );
+        });
+        await Promise.all(updatePromises);
+      } catch (error) {
+        console.error('Error updating member records with new agent name:', error);
+      }
+    }
+
+    antMessage.success('Agent updated successfully! Member records updated with new name.');
     if (onSuccess) onSuccess();
     closeAgentDrawer();
   };
