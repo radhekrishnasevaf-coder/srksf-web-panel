@@ -294,9 +294,11 @@ const styles = StyleSheet.create({
 });
 const Certificate=({data,selectedProgram,fontPath})=>{
 
-const pendingJoinFees = !data?.joinFeesDone
-  ? Math.max((data?.joinFees || 0) - (data?.joinFeesPaidAmount || 0), 0)
-  : 0;
+const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
+  ? Math.max(data.joinFeesRemainingAmount, 0)
+  : !data?.joinFeesDone
+    ? Math.max((data?.joinFees || 0) - (data?.joinFeesPaidAmount || 0), 0)
+    : 0;
  return     <Page size={{ width: '210mm', height: '148mm' }} style={styles.page}>
       <View style={styles.outerBorder}>
         <Text style={styles.serialNumber}>{data?.registrationNumber}</Text>
@@ -357,7 +359,7 @@ const pendingJoinFees = !data?.joinFeesDone
    
          
           </View>
-    {/* {pendingJoinFees > 0 && (
+    {pendingJoinFees > 0 && (
   <View style={styles.remarkBox}>
     <Text
       style={{
@@ -369,7 +371,7 @@ const pendingJoinFees = !data?.joinFeesDone
       {`Remark: ₹${pendingJoinFees} PENDING`}
     </Text>
   </View>
-)} */}
+)}
 
           {/* Form Section */}
           <View style={styles.formSection}>
