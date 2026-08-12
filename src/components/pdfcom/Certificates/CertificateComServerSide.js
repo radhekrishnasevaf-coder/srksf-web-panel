@@ -394,11 +394,11 @@ const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
             <View style={styles.row}>
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>नाम:</Text>
-                <Text style={[styles.value, { minWidth: 150 }]}>{data?.displayName || '---'}</Text>
+                <Text style={[styles.value, { minWidth: 150 }]}>{data?.displayName + " " || '---'}</Text>
               </View>
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>पिता/पति का नाम:</Text>
-                <Text style={[styles.value, { minWidth: 150 }]}>{data?.fatherName || '---'}</Text>
+                <Text style={[styles.value, { minWidth: 150 }]}>{data?.fatherName + " " || '---'}</Text>
               </View>
             </View>
 
@@ -421,7 +421,7 @@ const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
             {/* Row 4 */}
             <View style={styles.row}>
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>मोबाईल नंबर:</Text>
+                <Text style={styles.label}>मोबाईल नंबर: </Text>
                 <Text style={[styles.value, { minWidth: 140 }]}>{data?.phone || '---'}</Text>
               </View>
               <View style={styles.fieldGroup}>
@@ -446,7 +446,7 @@ const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
             <View style={styles.row}>
                   <View style={styles.fieldGroup}>
                 <Text style={styles.label}>वारिसदार:</Text>
-                <Text style={[styles.value, { minWidth: 160 }]}>{data?.guardian  || '---'}</Text>
+                <Text style={[styles.value, { minWidth: 160 }]}>{data?.guardian + " "  || '---'}</Text>
               </View>
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>प्रत्येक {selectedProgram?.isSuraksha?'देहांत':selectedProgram?.isMamera?"मायरा":'विवाह'} पर सहयोग राशि:</Text>
@@ -473,13 +473,13 @@ const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
           <View style={styles.footerSection}>
             {/* Left Side - Karyakarta */}
             <View style={styles.leftFooter}>
-              <Text style={styles.footerValue}>{data?.addedByName || '---'}</Text>
+              <Text style={styles.footerValue}>{data?.addedByName + " " || '---'}</Text>
               <Text style={styles.footerLabel}>कार्यकर्ता </Text>
             </View>
 
             {/* Right Side - Signature */}
             <View style={styles.rightFooter}>
-              <Text style={styles.footerValue}>{TrsutData.trustPresident}</Text>
+              <Text style={styles.footerValue}>{TrsutData.trustPresident + " "}</Text>
               <Text style={styles.footerLabel}>संस्थापक</Text>
               {/* <Text style={styles.signatureText}>हस्ताक्षर</Text> */}
             </View>
