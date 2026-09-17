@@ -18,6 +18,12 @@ import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firesto
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/lib/AuthProvider';
 import { useSelector } from 'react-redux';
+import {
+  calcCommission,
+  rateLabel,
+  COMMISSION_SOURCE,
+  toNum as cToNum,
+} from '@/lib/services/commissionService';
 import { getData } from '@/lib/services/firebaseService';
 
 import { AgGridReact } from 'ag-grid-react';
@@ -506,7 +512,8 @@ function BulkPaymentDrawer({ open, onClose, selectedRows, programId, programName
       });
 
       message.success(
-        `Bulk payment complete! ${fmt(result.totalPaid)} ka bhugtan ${result.membersProcessed} sadasyoṃ ke ${result.closingsProcessed} closings mein vitarit kiya gaya.`
+        `Bulk payment complete! ${fmt(result.totalPaid)} ka bhugtan ${result.membersProcessed} sadasyoṃ ke ${result.closingsProcessed} closings mein vitarit kiya gaya.` +
+        (result.commission > 0 ? ` Agent commission ${fmt(result.commission)} add ho gaya.` : '')
       );
       onSuccess?.();
       onClose();
@@ -796,11 +803,18 @@ function AddPaymentDrawer({ open, onClose, programId, programName, programList, 
   const [waterfallPreview, setWaterfallPreview] = useState(null);
   const [customTotalAmount, setCustomTotalAmount] = useState(null);
 
+  // ── Agent commission ──────────────────────────────────────────────────
+  const agentList = useSelector(state => state.data.agentsList) || [];
+  const [commissionEnabled, setCommissionEnabled] = useState(true);
+  const [commissionOverrideAmount, setCommissionOverrideAmount] = useState(null); // null = auto
+
   useEffect(() => {
     if (!open) {
       form.resetFields();
       setCurrentStep(0);
       setSelectedProgram(null);
+      setCommissionEnabled(true);
+      setCommissionOverrideAmount(null);
       setMembers([]);
       setMarriages([]);
       setFilteredMarriages([]);
@@ -1000,6 +1014,18 @@ function AddPaymentDrawer({ open, onClose, programId, programName, programList, 
         onlineReference: values.onlineReference || '',
         perClosingAmount: Number(values.amount) || 200,
         customTotalAmount: customTotalAmount || null,
+        commissionOverrides: selectedMember
+          ? {
+              [selectedMember]: {
+                enabled: commissionEnabled,
+                // per-closing commission bhejte hain — API har closing par ise use karega
+                amount:
+                  commissionOverrideAmount === null || commissionOverrideAmount === undefined
+                    ? null
+                    : (cToNum(commissionOverrideAmount) / Math.max(1, selectedMarriages.length)),
+              },
+            }
+          : undefined,
       });
 
       const fullPayments = result.fullyPaid || 0;
@@ -1008,7 +1034,10 @@ function AddPaymentDrawer({ open, onClose, programId, programName, programList, 
       if (result.remaining > 0) {
         message.warning(`Payment of ${fmt(effectiveTotalAmount)} processed but ${fmt(result.remaining)} remains unallocated.`);
       } else {
-        message.success(`Payment of ${fmt(result.totalPaid)} distributed across ${result.processed} closing(s). ${fullPayments} fully paid, ${partialCount} partially paid.`);
+        message.success(
+          `Payment of ${fmt(result.totalPaid)} distributed across ${result.processed} closing(s). ${fullPayments} fully paid, ${partialCount} partially paid.` +
+          (result.commission > 0 ? ` · Agent commission ${fmt(result.commission)} added.` : '')
+        );
       }
 
       onSuccess?.();
@@ -1029,6 +1058,16 @@ function AddPaymentDrawer({ open, onClose, programId, programName, programList, 
 
   const pendingCount = paymentPendingEntries.length;
   const memberDetails = members.find(m => m.id === selectedMember);
+
+  // Payer ka agent — closing commission isko milega
+  const payerAgent = memberDetails?.agentId
+    ? agentList.find(a => a.id === memberDetails.agentId || a.uid === memberDetails.agentId) || null
+    : null;
+  const payableTotal = customTotalAmount || (selectedMarriages.length * perClosingAmountValue);
+  const commissionCalc = calcCommission(payerAgent, COMMISSION_SOURCE.CLOSING, payableTotal);
+  const effectiveCommission = commissionOverrideAmount === null || commissionOverrideAmount === undefined
+    ? commissionCalc.amount
+    : cToNum(commissionOverrideAmount);
 
   const steps = [
     { title: 'Program', icon: <AppstoreOutlined /> },
@@ -1415,6 +1454,53 @@ function AddPaymentDrawer({ open, onClose, programId, programName, programList, 
                 </span>
               </div>
             </div>
+
+            {/* ── Agent commission ── */}
+            {payerAgent && (
+              <div
+                className="rounded-xl p-3 mt-3"
+                style={{
+                  background: commissionEnabled && commissionCalc.applicable ? '#fffbeb' : '#f9fafb',
+                  border: `1px solid ${commissionEnabled && commissionCalc.applicable ? '#fde68a' : '#e5e7eb'}`,
+                }}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Checkbox
+                    checked={commissionEnabled && commissionCalc.applicable}
+                    disabled={!commissionCalc.applicable}
+                    onChange={e => setCommissionEnabled(e.target.checked)}
+                  >
+                    <span className="text-xs font-semibold" style={{ color: '#92400e' }}>
+                      Agent commission
+                    </span>
+                  </Checkbox>
+                  <span className="text-xs" style={{ color: '#a16207' }}>
+                    {payerAgent.displayName}
+                    {commissionCalc.applicable
+                      ? ` · ${rateLabel(commissionCalc.type, commissionCalc.rate)}`
+                      : ' · commission off'}
+                  </span>
+                </div>
+
+                {commissionEnabled && commissionCalc.applicable && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Input
+                      type="number"
+                      size="small"
+                      prefix="₹"
+                      style={{ width: 130 }}
+                      value={effectiveCommission}
+                      onChange={e => setCommissionOverrideAmount(e.target.value)}
+                    />
+                    {commissionOverrideAmount !== null && (
+                      <Button type="link" size="small" onClick={() => setCommissionOverrideAmount(null)}>
+                        reset ({fmt(commissionCalc.amount)})
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Form>

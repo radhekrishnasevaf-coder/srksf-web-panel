@@ -1,6 +1,12 @@
 // app/api/payments/process/route.js
 import { NextResponse } from 'next/server';
 import admin from '../../admin';
+import {
+  buildCommissionDoc,
+  calcCommission,
+  COMMISSION_SOURCE,
+  toNum as cToNum,
+} from '@/lib/commissionCore';
 
 const adminDb = admin.firestore();
 const adminAuth = admin.auth();
@@ -71,6 +77,72 @@ async function isDuplicateRef(uid, programId, ref) {
   return !snap.empty;
 }
 
+/**
+ * Payer members ke agents ek saath fetch karta hai.
+ * @returns {Object} { [agentId]: agentDoc }
+ */
+async function fetchAgentsForMembers(uid, members = []) {
+  const agentIds = [...new Set(members.map((m) => m?.agentId).filter(Boolean))];
+  if (!agentIds.length) return {};
+  const snaps = await Promise.all(
+    agentIds.map((id) => adminDb.doc(`users/${uid}/agents/${id}`).get())
+  );
+  const map = {};
+  for (const s of snaps) {
+    if (s.exists) map[s.id] = { id: s.id, ...s.data() };
+  }
+  return map;
+}
+
+/**
+ * Ek closing transaction ke liye agent commission entry SmartBatch me add karta hai.
+ * Commission payer member ke agent ko milta hai.
+ * @returns {number} commission amount (0 agar applicable nahi)
+ */
+function queueCommission(sb, uid, {
+  member, agent, overrides, amount, programId, programName,
+  txId, closingMemberId, closingMemberName, paymentDate, note,
+}) {
+  if (!agent) return 0;
+
+  const override = overrides?.[member.id];
+  if (override && override.enabled === false) return 0;
+
+  const calc = calcCommission(agent, COMMISSION_SOURCE.CLOSING, amount);
+  if (!calc.applicable) return 0;
+
+  const hasCustom =
+    override && override.amount !== undefined && override.amount !== null && override.amount !== '';
+  const finalAmount = hasCustom ? cToNum(override.amount) : calc.amount;
+  if (finalAmount <= 0) return 0;
+
+  const ref = adminDb.collection(`users/${uid}/agents/${agent.id}/commissions`).doc();
+  sb.set(ref, buildCommissionDoc(uid, agent.id, {
+    agentName:   agent.displayName || '',
+    agentCode:   agent.agentCode || '',
+    programId,
+    programName,
+    sourceType:  COMMISSION_SOURCE.CLOSING,
+    sourceTransactionId: txId,
+    sourceCollection: `users/${uid}/programs/${programId}/transactions`,
+    memberId:    member.id,
+    memberName:  member.displayName || '',
+    memberRegistrationNumber: member.registrationNumber || '',
+    closingMemberId,
+    closingMemberName,
+    baseAmount:  amount,
+    commissionType: calc.type,
+    commissionRate: calc.rate,
+    isCustomAmount: !!hasCustom && finalAmount !== calc.amount,
+    amount:      finalAmount,
+    paymentDate,
+    note:        note || 'Closing payment commission',
+    createdBy:   uid,
+  }));
+
+  return finalAmount;
+}
+
 const chunkArray = (arr, size) => {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -118,6 +190,7 @@ async function processSinglePayment(uid, body) {
     payerId, selectedClosingIds,
     paymentMethod, paymentDate, note,
     onlineReference, perClosingAmount, customTotalAmount,
+    commissionOverrides,   // { [memberId]: { enabled: boolean, amount?: number } }
   } = body;
 
   if (!programId || !payerId || !selectedClosingIds?.length) {
@@ -141,6 +214,11 @@ async function processSinglePayment(uid, body) {
   if (dupCheck) return NextResponse.json({ error: 'Duplicate reference number' }, { status: 409 });
 
   const member = { id: memberSnap.id, ...memberSnap.data() };
+
+  // Payer ka agent — isi ko closing commission milega
+  const agentMap = await fetchAgentsForMembers(uid, [member]);
+  const payerAgent = member.agentId ? agentMap[member.agentId] || null : null;
+  let commissionTotal = 0;
 
   const pendingEntries = pendingSnap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
@@ -231,6 +309,21 @@ async function processSinglePayment(uid, body) {
         ...(paymentMethod === 'online' && onlineReference ? { onlineReference } : {}),
       });
     }
+
+    // ── Agent commission (payer ke agent ko) ─────────────────────────────
+    commissionTotal += queueCommission(sb, uid, {
+      member,
+      agent:             payerAgent,
+      overrides:         commissionOverrides,
+      amount:            dist.amount,
+      programId,
+      programName,
+      txId:              txRef.id,
+      closingMemberId:   dist.closingId,
+      closingMemberName: closing.displayName || '',
+      paymentDate,
+      note,
+    });
   }
 
   await sb.commit();
@@ -241,6 +334,9 @@ async function processSinglePayment(uid, body) {
     totalPaid: totalAmount - remaining,
     fullyPaid: distributions.filter((d) => d.isFullPayment).length,
     remaining,
+    commission: commissionTotal,
+    agentId:    payerAgent?.id || null,
+    agentName:  payerAgent?.displayName || null,
     batchId:   `BATCH-${batchId}`,
   });
 }
@@ -260,6 +356,7 @@ async function processBulkPayment(uid, body) {
     globalAmount,            // optional — old waterfall mode ke liye
     paymentMethod, paymentDate, note,
     onlineReference,
+    commissionOverrides,     // { [memberId]: { enabled: boolean, amount?: number } }
   } = body;
 
   if (!programId || !memberIds?.length) {
@@ -288,6 +385,11 @@ async function processBulkPayment(uid, body) {
   const memberSnaps = await Promise.all(memberIds.map(id => adminDb.doc(`${basePath}/members/${id}`).get()));
   const members = memberSnaps.filter(s => s.exists).map(s => ({ id: s.id, ...s.data() }));
   const memberMap = Object.fromEntries(members.map(m => [m.id, m]));
+
+  // Payer members ke agents — inhi ko closing commission milega
+  const agentMap = await fetchAgentsForMembers(uid, members);
+  let commissionTotal = 0;
+  const commissionByAgent = {};
 
   // ─── Fetch pending closings ────────────────────────────────────────────────
   const pendingSnapChunks = await Promise.all(
@@ -488,6 +590,26 @@ async function processBulkPayment(uid, body) {
         ...(paymentMethod === 'online' && onlineReference ? { onlineReference } : {}),
       });
 
+      // ── Agent commission (payer ke agent ko) ───────────────────────────
+      const payerAgent = member.agentId ? agentMap[member.agentId] || null : null;
+      const commAmt = queueCommission(sb, uid, {
+        member,
+        agent:             payerAgent,
+        overrides:         commissionOverrides,
+        amount:            pay,
+        programId,
+        programName,
+        txId:              txRef.id,
+        closingMemberId,
+        closingMemberName: cm.displayName || closing.closingMemberName || '',
+        paymentDate,
+        note,
+      });
+      if (commAmt > 0 && payerAgent) {
+        commissionTotal += commAmt;
+        commissionByAgent[payerAgent.id] = (commissionByAgent[payerAgent.id] || 0) + commAmt;
+      }
+
       remaining    -= pay;
       totalPaidAmt += pay;
       totalProc++;
@@ -507,6 +629,8 @@ async function processBulkPayment(uid, body) {
     closingsProcessed: totalProc,
     totalPaid:         totalPaidAmt,
     remaining,
+    commission:        commissionTotal,
+    commissionByAgent,
     batchId:           `BATCH-${batchId}`,
   });
 }

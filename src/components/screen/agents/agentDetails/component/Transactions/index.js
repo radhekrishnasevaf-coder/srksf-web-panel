@@ -8,6 +8,7 @@ import { PrinterOutlined, FilterOutlined, ReloadOutlined } from '@ant-design/ico
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { setSelectedProgram } from '@/redux/slices/commonSlice';
+import { useCan } from '@/components/base/Can';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -276,6 +277,7 @@ const getId = (input) => {
 };
 /* ─── Main Component ───────────────────────────────────────────────── */
 const Transactions = ({ agentId, agentInfo }) => {
+  const canDo = useCan();
   const programList     = useSelector((state) => state.data.programList);
   const { user }        = useAuth();
   const dispatch        = useDispatch();
@@ -456,7 +458,8 @@ const Transactions = ({ agentId, agentInfo }) => {
             onClick={() => printPDF({ transactions, summary, agentInfo, selectedProgram, customStart, customEnd, quickRange })}
             size="small"
             className="trx-btn-primary"
-            disabled={transactions.length === 0}
+            disabled={transactions.length === 0 || !canDo('agents', 'export')}
+            title={canDo('agents', 'export') ? undefined : 'Export ki anumati nahi hai'}
           >
             Print / PDF
           </Button>

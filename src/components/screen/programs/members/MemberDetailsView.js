@@ -7,6 +7,7 @@ import moment from 'moment';
 import { useDispatch, useSelector } from 'react-redux';
 import { db } from '@/lib/firebase';
 import { toggleMemberBlockStatus } from '@/lib/helper';
+import Can from '@/components/base/Can';
 import { useAuth } from '@/lib/AuthProvider';
 import { setgetMemberDataChange } from '@/redux/slices/commonSlice';
 import { getData } from '@/lib/services/firebaseService';
@@ -255,16 +256,18 @@ function MemberDetailsView({isModalVisible, handleCloseModal, showDeleteConfirm,
         <Button key="close" onClick={handleCloseModal} className="rounded-md mr-2">
           Close
         </Button>,
-        <Button 
-          loading={isBlocking} 
-          onClick={blockMember} 
-          type='primary'  
-          className={selectedMember?.active_flag === false && selectedMember?.status == 'blocked' ? "!bg-green-700" : "!bg-red-700"}
-        >
-          {selectedMember?.active_flag == false && selectedMember?.status == 'blocked' 
-            ? "Unblock Member" 
-            : "Block Member"}
-        </Button>
+        <Can key="block" screen="members" action="block">
+          <Button 
+            loading={isBlocking} 
+            onClick={blockMember} 
+            type='primary'  
+            className={selectedMember?.active_flag === false && selectedMember?.status == 'blocked' ? "!bg-green-700" : "!bg-red-700"}
+          >
+            {selectedMember?.active_flag == false && selectedMember?.status == 'blocked' 
+              ? "Unblock Member" 
+              : "Block Member"}
+          </Button>
+        </Can>
       ]}
       width={1200}
       className="rounded-lg"

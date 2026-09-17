@@ -11,6 +11,13 @@ import dayjs from 'dayjs';
 import { useDispatch } from 'react-redux';
 import { setgetAgentDataChange } from '@/redux/slices/commonSlice';
 import { TrsutData } from '@/lib/constentData';
+import CommissionSettingsCard from '@/components/common/commission/CommissionSettingsCard';
+import Can from '@/components/base/Can';
+import {
+  buildCommissionConfig,
+  COMMISSION_TYPE,
+  DEFAULT_COMMISSION_PERCENT,
+} from '@/lib/services/commissionService';
 
 const { Option } = Select;
 
@@ -22,6 +29,16 @@ const indianStates = [
   "West Bengal", "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu", 
   "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry"
 ];
+
+const COMMISSION_FORM_DEFAULTS = {
+  commissionEnabled: true,
+  joinFeesCommissionEnabled: true,
+  joinFeesCommissionType: COMMISSION_TYPE.PERCENTAGE,
+  joinFeesCommissionValue: DEFAULT_COMMISSION_PERCENT,
+  closingCommissionEnabled: true,
+  closingCommissionType: COMMISSION_TYPE.PERCENTAGE,
+  closingCommissionValue: DEFAULT_COMMISSION_PERCENT,
+};
 
 const AddAgent = () => {
   const [isAgentDrawerVisible, setIsAgentDrawerVisible] = useState(false);
@@ -56,6 +73,7 @@ const AddAgent = () => {
     const pwd = generatePassword();
     setAutoPassword(pwd);
     form.setFieldsValue({ password: pwd });
+    form.setFieldsValue(COMMISSION_FORM_DEFAULTS);
     getNextAgentCode();
   };
 
@@ -348,7 +366,8 @@ The Team
         active_flags: true,
         delete_flags: false,
         role: 'agent',
-        status: 'active'
+        status: 'active',
+        commission: buildCommissionConfig(values),
       };
 
       // Create agent subcollection under the admin user
@@ -419,15 +438,17 @@ The Team
 
   return (
     <div>
-      <Button
-        type="primary"
-        size="medium"
-        icon={<UserAddOutlined />}
-        onClick={showAgentDrawer}
-        className="shadow-md hover:shadow-lg transition-all duration-300 !bg-amber-900"
-      >
-        ADD AGENT
-      </Button>
+      <Can screen="agents" action="create">
+        <Button
+          type="primary"
+          size="medium"
+          icon={<UserAddOutlined />}
+          onClick={showAgentDrawer}
+          className="shadow-md hover:shadow-lg transition-all duration-300 !bg-amber-900"
+        >
+          ADD AGENT
+        </Button>
+      </Can>
 
       <Drawer
         title={
@@ -460,7 +481,7 @@ The Team
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
-              initialValues={{ dateJoin: dayjs() }}
+              initialValues={{ dateJoin: dayjs(), ...COMMISSION_FORM_DEFAULTS }}
               className="space-y-4"
             >
               {/* Personal Information */}
@@ -699,6 +720,9 @@ The Team
                   </div>
                 </Form.Item>
               </Card>
+
+              {/* Commission Settings */}
+              <CommissionSettingsCard form={form} />
 
               <Divider />
 

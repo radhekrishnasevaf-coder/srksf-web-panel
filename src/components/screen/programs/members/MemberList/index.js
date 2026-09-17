@@ -18,7 +18,12 @@ import {
 } from 'antd';
 import { useDispatch, useSelector } from 'react-redux';
 import { getData } from '@/lib/services/firebaseService';
+import {
+    getCertificateStatus,
+    markManyCertificatesDownloaded,
+} from '@/lib/services/certificateService';
 import { useAuth } from '@/lib/AuthProvider';
+import Can, { useCan } from '@/components/base/Can';
 import { BsThreeDots } from 'react-icons/bs';
 import MemberDetailsView from '../MemberDetailsView';
 import EditMember from '../EditMember';
@@ -139,6 +144,7 @@ const MemberList = () => {
     const agentList          = useSelector(s => s.data.agentList);
     const { agentsList }     = useSelector(s => s.data);
     const { user }           = useAuth();
+    const canDo              = useCan();
     const gridRef            = useRef();
 
     const [windowWidth, setWindowWidth] = useState(
@@ -375,6 +381,30 @@ const MemberList = () => {
             cellRenderer: ({ data }) => data.dateJoin || '—'
         },
         {
+            field: 'certificateDownloaded', headerName: 'Certificate', width: 140, filter: false,
+            cellRenderer: ({ data }) => {
+                const st = getCertificateStatus(data);
+                if (!st.downloaded) {
+                    return <Tag color="default" style={{ opacity: 0.7 }}>बाकी है</Tag>;
+                }
+                return (
+                    <Tooltip
+                        title={
+                            <span style={{ fontSize: 12 }}>
+                                {st.count} बार डाउनलोड
+                                {st.lastAt ? ` · पिछली बार ${dayjs(st.lastAt).format('DD/MM/YY, hh:mm A')}` : ''}
+                                {st.byName ? ` · ${st.byName}` : ''}
+                            </span>
+                        }
+                    >
+                        <Tag color="success" style={{ cursor: 'help' }}>
+                            ✓ डाउनलोड {st.count > 1 ? `· ${st.count}x` : ''}
+                        </Tag>
+                    </Tooltip>
+                );
+            }
+        },
+        {
             field: 'Action', headerName: 'Action', pinned: 'right', width: 150, filter: false,
             cellRenderer: ({ data }) => {
                 const isDeleted = data.delete_flag === true;
@@ -383,23 +413,23 @@ const MemberList = () => {
 
                 const items = [
                     {
-                        key: '0', disabled: isDeleted || isBlocked || isClosed,
+                        key: '0', disabled: isDeleted || isBlocked || isClosed || !canDo('members', 'edit'),
                         label: (
                             <Button type="default" size="small"
                                 onClick={() => { setSelectedMember(data); setIsOpenClosingForm(true); }}
                                 className="flex items-center gap-1 h-8 rounded-lg bg-blue-50 border-blue-200"
-                                disabled={isDeleted || isBlocked || isClosed}>
+                                disabled={isDeleted || isBlocked || isClosed || !canDo('members', 'edit')}>
                                 <PlusCircleOutlined /> Close Form
                             </Button>
                         ),
                     },
                     {
-                        key: '1', disabled: isDeleted,
+                        key: '1', disabled: isDeleted || !canDo('members', 'download'),
                         label: (
                             <Button type="default" size="small"
                                 onClick={() => { setSelectedMember(data); setIsCertModalOpen(true); }}
                                 className="flex items-center gap-1 h-8 rounded-lg bg-blue-50 border-blue-200"
-                                disabled={isDeleted}>
+                                disabled={isDeleted || !canDo('members', 'download')}>
                                 <GrCertificate /> Certificate
                             </Button>
                         ),
@@ -435,11 +465,11 @@ const MemberList = () => {
                                 onClick={() => { setSelectedMember(data); setIsDetailsView(true); }}
                                 className="w-8 h-8 rounded-lg" />
                         </Tooltip>
-                        <Tooltip title="Edit">
+                        <Tooltip title={canDo('members', 'edit') ? 'Edit' : 'Edit ki anumati nahi hai'}>
                             <Button type="default" icon={<EditOutlined />} size="small"
                                 onClick={() => { setSelectedMember(data); setIsEditmemberOpen(true); }}
                                 className="w-8 h-8 rounded-lg bg-blue-50 border-blue-200"
-                                disabled={isDeleted || isBlocked || isClosed} />
+                                disabled={isDeleted || isBlocked || isClosed || !canDo('members', 'edit')} />
                         </Tooltip>
                         <Dropdown menu={{ items: items.filter(i => !i.disabled) }} trigger={['click']}>
                             <Button type="default" icon={<BsThreeDots />} size="small"
@@ -455,6 +485,46 @@ const MemberList = () => {
         if (!membersArray || membersArray.length === 0) {
             message.warning('No members selected for certificate download');
             return;
+        }
+
+        // Jinka certificate pehle hi download ho chuka hai
+        const already = membersArray.filter(m => getCertificateStatus(m).downloaded);
+        if (already.length > 0) {
+            const proceed = await new Promise(resolve => {
+                Modal.confirm({
+                    title: `${already.length} सदस्यों का certificate पहले ही डाउनलोड हो चुका है`,
+                    width: 520,
+                    content: (
+                        <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                            <div>
+                                कुल <strong>{membersArray.length}</strong> में से{' '}
+                                <strong>{already.length}</strong> का certificate पहले डाउनलोड हो चुका है।
+                            </div>
+                            <div style={{
+                                marginTop: 8, maxHeight: 150, overflowY: 'auto',
+                                background: '#fffbe6', border: '1px solid #ffe58f',
+                                borderRadius: 6, padding: '8px 12px', fontSize: 12,
+                            }}>
+                                {already.slice(0, 20).map(m => (
+                                    <div key={m.id}>
+                                        • {m.displayName}
+                                        {m.registrationNumber ? ` (#${m.registrationNumber})` : ''}
+                                        {' — '}{getCertificateStatus(m).count}x
+                                    </div>
+                                ))}
+                                {already.length > 20 && <div>…और {already.length - 20} और</div>}
+                            </div>
+                            <div style={{ marginTop: 10 }}>फिर भी सबका certificate बनाना है?</div>
+                        </div>
+                    ),
+                    okText: 'हाँ, आगे बढ़ें',
+                    okButtonProps: { danger: true },
+                    cancelText: 'रद्द करें',
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!proceed) return;
         }
 
         setIsCertDownloading(true);
@@ -497,8 +567,20 @@ const MemberList = () => {
                 URL.revokeObjectURL(url);
             }, 100);
             
-            message.success('Certificate generated successfully!');
-            
+            // Sabhi members par download ka nishan lagao
+            const marked = await markManyCertificatesDownloaded(
+                user?.uid,
+                selectedProgram?.id,
+                membersArray,
+                { uid: user?.uid, name: user?.displayName || user?.name || 'Admin' }
+            );
+
+            message.success(
+                `Certificate generated successfully!` +
+                (marked ? ` ${marked} सदस्यों पर डाउनलोड मार्क हो गया।` : '')
+            );
+            onGridReady();
+
         } catch (error) {
             console.error('Error:', error);
             message.error('Failed to generate certificates. Please try again.');
@@ -576,22 +658,26 @@ const MemberList = () => {
                     >
                         Join Fees List
                     </Button>
-                     <Button
-                        icon={<FilePdfOutlined />}
-                        onClick={() => downloadMultipleCertificates(filteredMembersData, selectedProgram)}
-                        loading={isCertDownloading}
-                        disabled={isCertDownloading || filteredMembersData.length === 0}
-                        className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-green-50 border-green-300 text-green-600 hover:bg-green-100 hover:border-green-400 font-medium"
-                    >
-                        {isCertDownloading ? 'Generating...' : 'Download Certificates'}
-                    </Button>
-                    <Button
-                        icon={<FilePdfOutlined />}
-                        onClick={() => setIsExportOpen(true)}
-                        className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-red-50 border-red-300 text-red-600 hover:bg-red-100 hover:border-red-400 font-medium"
-                    >
-                        Export PDF
-                    </Button>
+                    <Can screen="members" action="download">
+                        <Button
+                            icon={<FilePdfOutlined />}
+                            onClick={() => downloadMultipleCertificates(filteredMembersData, selectedProgram)}
+                            loading={isCertDownloading}
+                            disabled={isCertDownloading || filteredMembersData.length === 0}
+                            className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-green-50 border-green-300 text-green-600 hover:bg-green-100 hover:border-green-400 font-medium"
+                        >
+                            {isCertDownloading ? 'Generating...' : 'Download Certificates'}
+                        </Button>
+                    </Can>
+                    <Can screen="members" action="export">
+                        <Button
+                            icon={<FilePdfOutlined />}
+                            onClick={() => setIsExportOpen(true)}
+                            className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-red-50 border-red-300 text-red-600 hover:bg-red-100 hover:border-red-400 font-medium"
+                        >
+                            Export PDF
+                        </Button>
+                    </Can>
                 </div>
             </div>
 
@@ -810,6 +896,7 @@ const MemberList = () => {
                 open={isCertModalOpen}
                 onClose={() => setIsCertModalOpen(false)}
                 memberData={selectedMember}
+                onDownloaded={onGridReady}
             />
             <MemberRegForm
                 open={isOpenRegModal}

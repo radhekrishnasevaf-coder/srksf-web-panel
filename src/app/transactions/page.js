@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useAuth } from '@/lib/AuthProvider';
+import { useCan } from '@/components/base/Can';
 import { deleteData, getData, updateData } from '@/lib/services/firebaseService';
 import {
   Button, Space, Modal, App, Card, Row, Col, DatePicker, Select, Input,
@@ -100,6 +101,7 @@ function exportToCSV(transactions, programName) {
 // ─── Component ───────────────────────────────────────────────────────────────
 const TransactionsPage = () => {
   const { user } = useAuth();
+  const canDo = useCan();
   const { message: antdMessage, modal } = App.useApp();
   const selectedProgram = useSelector((state) => state.data.selectedProgram);
   const programRef = useRef(selectedProgram);
@@ -391,10 +393,11 @@ const TransactionsPage = () => {
               style={{ color: '#2563eb' }}
             />
           </Tooltip>
-          <Tooltip title="Delete">
+          <Tooltip title={canDo('transactions', 'delete') ? 'Delete' : 'Delete ki anumati nahi hai'}>
             <Button
               type="text" size="small" danger icon={<DeleteOutlined />}
               onClick={() => showDeleteConfirm(record)}
+              disabled={!canDo('transactions', 'delete')}
             />
           </Tooltip>
         </Space>
@@ -536,14 +539,16 @@ const TransactionsPage = () => {
               size="small"
               icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
               onClick={onExportCSV}
-              disabled={!transactions.length}
+              disabled={!transactions.length || !canDo('transactions', 'export')}
+              title={canDo('transactions', 'export') ? undefined : 'Export ki anumati nahi hai'}
             >
               CSV
             </Button>
             <Button
               size="small" type="primary" danger icon={<FilePdfOutlined />}
               onClick={() => { if (!transactions.length) { antdMessage.warning('No data'); return; } setPdfDrawerOpen(true); }}
-              disabled={!transactions.length}
+              disabled={!transactions.length || !canDo('transactions', 'export')}
+              title={canDo('transactions', 'export') ? undefined : 'Export ki anumati nahi hai'}
             >
               PDF
             </Button>

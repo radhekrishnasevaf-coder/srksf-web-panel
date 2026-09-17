@@ -9,7 +9,25 @@ import { setDoc, doc, collection, getDoc, updateDoc, getDocs, query, where } fro
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import dayjs from 'dayjs';
 
+import CommissionSettingsCard from '@/components/common/commission/CommissionSettingsCard';
+import {
+  buildCommissionConfig,
+  commissionConfigToFormValues,
+  COMMISSION_TYPE,
+  DEFAULT_COMMISSION_PERCENT,
+} from '@/lib/services/commissionService';
+
 const { Option } = Select;
+
+const COMMISSION_FORM_DEFAULTS = {
+  commissionEnabled: true,
+  joinFeesCommissionEnabled: true,
+  joinFeesCommissionType: COMMISSION_TYPE.PERCENTAGE,
+  joinFeesCommissionValue: DEFAULT_COMMISSION_PERCENT,
+  closingCommissionEnabled: true,
+  closingCommissionType: COMMISSION_TYPE.PERCENTAGE,
+  closingCommissionValue: DEFAULT_COMMISSION_PERCENT,
+};
 
 const indianStates = [
   "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", 
@@ -68,7 +86,8 @@ const AgentManagement = ({ agentData = null, mode = 'add', onSuccess,isAgentDraw
         address: agentData.address || '',
         city: agentData.city || '',
         state: agentData.state || '',
-        pinCode: agentData.pinCode || ''
+        pinCode: agentData.pinCode || '',
+        ...commissionConfigToFormValues(agentData)
       });
 
       // Load existing photo
@@ -317,6 +336,7 @@ const AgentManagement = ({ agentData = null, mode = 'add', onSuccess,isAgentDraw
       photoURL: photoURL || '',
       signatureURL: signatureURL || '',
       documentURLs: documentURLs || [],
+      commission: buildCommissionConfig(values),
       updatedAt: new Date()
     });
 
@@ -414,7 +434,7 @@ const AgentManagement = ({ agentData = null, mode = 'add', onSuccess,isAgentDraw
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
-              initialValues={{ dateJoin: dayjs() }}
+              initialValues={{ dateJoin: dayjs(), ...COMMISSION_FORM_DEFAULTS }}
               className="space-y-4"
             >
               {/* Personal Information */}
@@ -649,6 +669,9 @@ const AgentManagement = ({ agentData = null, mode = 'add', onSuccess,isAgentDraw
                   </Form.Item>
                 </Card>
               )}
+
+              {/* Commission Settings */}
+              <CommissionSettingsCard form={form} />
 
               <Divider />
 

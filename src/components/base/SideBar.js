@@ -12,26 +12,34 @@ import {
   FiFolder,
   FiUser,
   FiLayers,
+  FiDollarSign,
   FiX
 } from 'react-icons/fi';
 import { useAuth } from '@/lib/AuthProvider';
+import { canViewScreen } from '@/lib/permissions';
 
 const SideBar = ({ collapsed, onClose }) => {
   const pathname = usePathname();
   const { user } = useAuth();
 
-  const navItems = [
-    { icon: FiGrid,      label: 'Dashboard',         link: '/',                description: 'Overview & analytics' },
-    { icon: FiUsers,     label: 'Members',            link: '/members',         description: 'Manage members' },
-    { icon: FiUser,      label: 'Agents',             link: '/agents',          description: 'Agent management' },
-    { icon: FiBell,      label: 'Yojna',              link: '/yojna',           description: 'Schemes & programs' },
-    { icon: FiCreditCard,label: 'Closing Payments',   link: '/closingPayments', description: 'Closing payments' },
-    { icon: FiCreditCard,label: 'Payments',           link: '/transactions',    description: 'Payment history' },
+  // `screen` key permissions se match karti hai (lib/permissions.js)
+  const allNavItems = [
+    { icon: FiGrid,      screen: 'dashboard',       label: 'Dashboard',        link: '/',                description: 'Overview & analytics' },
+    { icon: FiUsers,     screen: 'members',         label: 'Members',          link: '/members',         description: 'Manage members' },
+    { icon: FiUser,      screen: 'agents',          label: 'Agents',           link: '/agents',          description: 'Agent management' },
+    { icon: FiBell,      screen: 'yojna',           label: 'Yojna',            link: '/yojna',           description: 'Schemes & programs' },
+    { icon: FiCreditCard,screen: 'closingPayments', label: 'Closing Payments', link: '/closingPayments', description: 'Closing payments' },
+    { icon: FiCreditCard,screen: 'transactions',    label: 'Payments',         link: '/transactions',    description: 'Payment history' },
+    { icon: FiDollarSign,screen: 'commissions',     label: 'Commissions',      link: '/commissions',     description: 'Agent commissions' },
   ];
 
-  const systemItems = [
-    { icon: FiSettings, label: 'Settings', link: '/setting', description: 'App configuration' },
+  const allSystemItems = [
+    { icon: FiSettings, screen: 'settings', label: 'Settings', link: '/setting', description: 'App configuration' },
   ];
+
+  // Jo screens is user ko allowed nahi, wo sidebar me dikhengi hi nahi
+  const navItems = allNavItems.filter(i => canViewScreen(user, i.screen));
+  const systemItems = allSystemItems.filter(i => canViewScreen(user, i.screen));
 
   const isActive = (path) => {
     if (path === '/') return pathname === '/';

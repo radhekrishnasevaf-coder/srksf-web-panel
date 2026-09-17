@@ -11,14 +11,21 @@ import {
     InfoCircleOutlined, CloseOutlined, ArrowRightOutlined,
     HistoryOutlined, ReceiptOutlined, FilePdfOutlined
 } from '@ant-design/icons'
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/AuthProvider'
+import { useCan } from '@/components/base/Can'
 import dayjs from 'dayjs'
 import PaymentModal from './PaymentModal'
 import { createData, updateData, getData } from '@/lib/services/firebaseService'
 import TransactionHistoryDrawer from './TransactionHistoryDrawer'
 import JoinFeesExportPDF from './JoinFeesExportPDF'
 import { pdfColors, TrsutData } from '@/lib/constentData'
+import { useSelector } from 'react-redux'
+import {
+    createCommissionEntry,
+    COMMISSION_SOURCE,
+    toNum as cToNum,
+} from '@/lib/services/commissionService'
 
 const { Option } = Select
 const { TextArea } = Input
@@ -128,6 +135,14 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
     const [pdfExportOpen, setPdfExportOpen] = useState(false)
     const { user }                              = useAuth()
     const { message } = App.useApp()
+    const agentsList = useSelector((state) => state.data.agentsList) || []
+    const canDo = useCan()
+
+    // har member ka apna agent — na mile toh screen wala selected agent
+    const resolveAgent = useCallback((member) => {
+        if (!member?.agentId) return agentData || null
+        return agentsList.find(a => a.id === member.agentId || a.uid === member.agentId) || agentData || null
+    }, [agentsList, agentData])
 
     // ── Normalize members data (convert strings to numbers) ──────────────────
     const normalizedMembersData = useMemo(() => {
@@ -189,6 +204,10 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
         )
 
     const handleExport = (type) => {
+        if (!canDo('members', 'export')) {
+            message.warning('Export ki anumati aapke account ko nahi hai')
+            return
+        }
         const data = type === 'selected' ? selectedMembers : filteredMembers
         if (!data.length) { message.warning('No members to export'); return }
         
@@ -248,11 +267,14 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
         }
     }
 
-    const handleSubmitPayment = async (allocations) => {
+    const handleSubmitPayment = async (allocations, commissionPlans = {}) => {
         try {
             const values = await paymentForm.validateFields()
             setSubmitting(true)
-     
+
+            let commissionTotal = 0
+            let commissionCount = 0
+
             for (let idx = 0; idx < selectedMembers.length; idx++) {
                 const member = selectedMembers[idx]
                 const pay = toNumber(allocations[idx])
@@ -263,7 +285,7 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
                 const newPaid = currentPaid + pay
                 const fullPaid = newPaid >= totalFees
      
-                await createData(
+                const txRef = await createData(
                     `/users/${user.uid}/programs/${selectedProgram.id}/joinFeesTransactions`,
                     {
                         memberId:           member.id,
@@ -292,11 +314,50 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
                         lastPaymentDate:       values.paymentDate?.toDate() || new Date(),
                     }
                 )
+
+                // ── Agent commission ───────────────────────────────────────
+                const plan = commissionPlans[idx]
+                const commissionAmount = cToNum(plan?.amount)
+                if (plan?.enabled && plan?.agentId && commissionAmount > 0) {
+                    try {
+                        await createCommissionEntry(user.uid, plan.agentId, {
+                            agentName:   plan.agent?.displayName || plan.agent?.name || '',
+                            agentCode:   plan.agent?.agentCode || '',
+                            programId:   selectedProgram?.id || null,
+                            programName: selectedProgram?.name || '',
+                            sourceType:  COMMISSION_SOURCE.JOIN_FEES,
+                            sourceTransactionId: txRef?.id || null,
+                            sourceCollection: `users/${user.uid}/programs/${selectedProgram?.id}/joinFeesTransactions`,
+                            memberId:    member.id,
+                            memberName:  member.displayName || '',
+                            memberRegistrationNumber: member.registrationNumber || '',
+                            baseAmount:  pay,
+                            commissionType: plan.type,
+                            commissionRate: plan.rate,
+                            // custom = ya toh is screen par badla gaya, ya member
+                            // par pehle se custom rate set thi
+                            isCustomAmount: plan.isCustom === true || plan.fromMemberRule === true,
+                            amount:      commissionAmount,
+                            paymentDate: values.paymentDate?.toDate() || new Date(),
+                            note:        values.note || '',
+                            createdBy:   user?.uid,
+                        })
+                        commissionTotal += commissionAmount
+                        commissionCount += 1
+                    } catch (commErr) {
+                        // commission fail ho toh payment fail nahi karna
+                        console.error('Commission entry failed:', commErr)
+                        message.warning(`Payment saved, but commission entry failed for ${member.displayName}`)
+                    }
+                }
             }
      
             const totalPaid = Object.values(allocations).reduce((s, v) => s + toNumber(v), 0)
             onSuccess && onSuccess()
-            message.success(`Payment of ${fmt(totalPaid)} recorded for ${selectedMembers.length} member(s)`)
+            message.success(
+                `Payment of ${fmt(totalPaid)} recorded for ${selectedMembers.length} member(s)` +
+                (commissionCount ? ` · ${fmt(commissionTotal)} commission added for ${commissionCount} agent entry(s)` : '')
+            )
             setPaymentModalOpen(false)
             setSelectedRowKeys([])
             onClose()
@@ -638,6 +699,7 @@ const JoinFeesMemberList = ({ onSuccess,open, onClose, membersData, agentData, s
                 totalDue={totalSelectedDue}
                 form={paymentForm}
                 agentData={agentData}
+                resolveAgent={resolveAgent}
             />
 
             <TransactionHistoryDrawer

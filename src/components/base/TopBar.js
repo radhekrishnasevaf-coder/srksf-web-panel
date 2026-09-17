@@ -15,6 +15,7 @@ import {
   FiSearch
 } from 'react-icons/fi';
 import RequestSection from '../common/requestSection';
+import Can from './Can';
 import AddProgram from '../common/program';
 import { useAuth } from '@/lib/AuthProvider';
 import { doc, onSnapshot, deleteDoc } from 'firebase/firestore';
@@ -34,6 +35,7 @@ const PAGE_LABELS = {
   'yojna': 'Yojna',
   'closingPayments': 'Closing Payments',
   'transactions': 'Payments',
+  'commissions': 'Agent Commissions',
   'setting': 'Settings',
 };
 
@@ -266,7 +268,7 @@ const TopBar = ({ sidebarCollapsed, toggleSidebar, showNotifications, toggleNoti
             <AddPaymentModal />
             <AddAgent />
             <AddMember />
-            <RequestSection />
+            <Can screen="requests" action="view"><RequestSection /></Can>
           </div>
 
           <span className="topbar-sep" />
@@ -300,7 +302,7 @@ const TopBar = ({ sidebarCollapsed, toggleSidebar, showNotifications, toggleNoti
         <AddPaymentModal />
         <AddAgent />
         <AddMember />
-        <RequestSection />
+        <Can screen="requests" action="view"><RequestSection /></Can>
       </div>
 
       {/* Logout modal */}

@@ -4,8 +4,9 @@ import { Table, Modal, Tabs, Button, Tag, Space, Avatar, Image, Input, Alert, Ap
 import { UserOutlined, PhoneOutlined, MailOutlined, HomeOutlined, FileTextOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined, KeyOutlined, MoreOutlined } from '@ant-design/icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { collection, deleteDoc, doc, getDocs, query, where, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/lib/AuthProvider';
+import { useCan } from '@/components/base/Can';
 import AgentManagement from './EditAgents';
 import AgentDetails from './agentDetails';
 import { setgetAgentDataChange } from '@/redux/slices/commonSlice';
@@ -15,6 +16,7 @@ const AgentPage = () => {
 const {agentsList}= useSelector((state) => state.data);
 const programList = useSelector((state) => state.data.programList) || [];
 const { user } = useAuth();
+const canDo = useCan();
 const { message, modal } = App.useApp();
   const dispatch = useDispatch();
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -83,9 +85,13 @@ const { message, modal } = App.useApp();
           await deleteDoc(agentRef);
           // Also try to delete Firebase Auth user
           try {
+            const authToken = await auth.currentUser?.getIdToken();
             await fetch('/api/user', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+              },
               body: JSON.stringify({ action: 'delete', uid: record.uid }),
             });
           } catch (authErr) {
@@ -141,9 +147,13 @@ const { message, modal } = App.useApp();
     }
     setChangingPassword(true);
     try {
+      const authToken = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
         body: JSON.stringify({ action: 'updatePassword', uid: selectedAgent?.uid, newPassword }),
       });
       const data = await res.json();
@@ -251,12 +261,14 @@ const { message, modal } = App.useApp();
                   key: 'edit',
                   icon: <EditOutlined />,
                   label: 'Edit',
+                  disabled: !canDo('agents', 'edit'),
                   onClick: () => handleEdit(record),
                 },
                 {
                   key: 'password',
                   icon: <KeyOutlined />,
                   label: 'Change Password',
+                  disabled: !canDo('agents', 'edit'),
                   onClick: () => {
                     setSelectedAgent(record);
                     setNewPassword('');
@@ -269,6 +281,7 @@ const { message, modal } = App.useApp();
                   icon: <DeleteOutlined />,
                   label: 'Delete',
                   danger: true,
+                  disabled: !canDo('agents', 'delete'),
                   onClick: () => handleDelete(record),
                 },
               ],

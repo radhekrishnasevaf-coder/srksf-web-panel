@@ -26,6 +26,19 @@ import { uploadFile } from '@/lib/services/storageService';
 import { useAuth } from '@/lib/AuthProvider';
 import { deleteObject, ref } from 'firebase/storage';
 import { districtsByState, gender, states } from '@/lib/staticData';
+import MemberCommissionCard from '@/components/common/commission/MemberCommissionCard';
+import {
+  buildMemberJoinFeesOverride,
+  getMemberJoinFeesOverride,
+  getCommissionConfig,
+  calcJoinFeesCommission,
+  createCommissionEntry,
+  COMMISSION_SOURCE,
+  COMMISSION_TYPE,
+  fmtMoney,
+  toNum as cToNum,
+} from '@/lib/services/commissionService';
+import { createData } from '@/lib/services/firebaseService';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -53,6 +66,52 @@ const EditMember = ({ memberData, programId, onSuccess, setOpen, open }) => {
   // Location group
   const [selectedLocationGroup, setSelectedLocationGroup] = useState(null);
   const { user } = useAuth();
+
+  // Drawer khulte waqt member par jitni join fees already jama thi —
+  // isi se tay hota hai ki ab kitna NAYA payment ho raha hai
+  const [originalJoinFeesPaid, setOriginalJoinFeesPaid] = useState(0);
+
+  // Is member par agent ka join-fees commission override
+  const [commissionOverride, setCommissionOverride] = useState(null);
+  const watchedAgentId = Form.useWatch('selectedAgent', form);
+  const selectedAgentObj = addedBy === 'agent'
+    ? agentsList.find(a => a.id === watchedAgentId || a.uid === watchedAgentId) || null
+    : null;
+
+  // ── Join fees ka hisaab ────────────────────────────────────────────────
+  // Edit me poori paid amount set hoti hai, par commission sirf NAYE
+  // payment par banna chahiye — isliye delta nikalte hain.
+  const newJoinFeesPaid = !isJoinFeesDone
+    ? 0
+    : joinFeesPaymentType === 'full'
+      ? cToNum(joinFees)
+      : cToNum(customJoinFeesAmount);
+
+  const joinFeesDelta = newJoinFeesPaid - cToNum(originalJoinFeesPaid);
+  const joinFeesRemainingNow = Math.max(0, cToNum(joinFees) - newJoinFeesPaid);
+
+  // Commission sirf badhi hui raashi par
+  const editCommissionCalc = calcJoinFeesCommission(
+    selectedAgentObj,
+    { joinFeesCommission: commissionOverride },
+    Math.max(0, joinFeesDelta)
+  );
+
+  // Agent badla aur is member par koi override save nahi hai toh uski
+  // default rate se seed kar do (card me turant dikh jaye)
+  useEffect(() => {
+    if (!selectedAgentObj) { setCommissionOverride(null); return; }
+    setCommissionOverride(prev => {
+      if (prev) return prev;
+      const cfg = getCommissionConfig(selectedAgentObj);
+      return {
+        enabled: true,
+        isCustom: false,
+        type: cfg.joinFees.type || COMMISSION_TYPE.PERCENTAGE,
+        value: cfg.joinFees.value,
+      };
+    });
+  }, [selectedAgentObj?.id]);
 
   // File uploads - Store actual File objects and existing URLs
   const [photo, setPhoto] = useState([]);
@@ -212,6 +271,9 @@ useEffect(() => {
     }
     
     setAddedBy(memberData.addedBy || 'admin');
+    setOriginalJoinFeesPaid(cToNum(memberData?.joinFeesPaidAmount));
+    // member par pehle se saved commission override (ho toh) load kar lo
+    setCommissionOverride(getMemberJoinFeesOverride(memberData));
 
     // Set form values
     const formValues = {
@@ -501,6 +563,12 @@ console.log(values,'values')
         addedBy: values.addedBy,
         addedByName: values.addedBy === 'agent' ? agentName : 'Admin',
         agentId: values.addedBy === 'agent' ? values.selectedAgent : null,
+        // Join-fees commission override — baad me jab join fees collect hogi
+        // tab agent default ki jagah yahi lagu hoga
+        joinFeesCommission:
+          values.addedBy === 'agent' && commissionOverride
+            ? buildMemberJoinFeesOverride(commissionOverride)
+            : null,
         extraDetails: extraFields.filter(f => f.label && f.value),
         updatedAt: new Date(),
       };
@@ -509,7 +577,98 @@ console.log(values,'values')
       const memberDocRef = doc(db, `/users/${user.uid}/programs/${programId}/members/${memberData.id}`);
       await updateDoc(memberDocRef, updatedMemberData);
 
-      message.success('सदस्य सफलतापूर्वक अपडेट किया गया!');
+      // ── Join fees ka antar: transaction + agent commission ─────────────
+      // Edit me poori paid amount set hoti hai. Jitni raashi BADHI hai
+      // sirf usi ka record aur commission banta hai — warna har edit par
+      // dobara commission ban jata.
+      const prevPaid = cToNum(originalJoinFeesPaid);
+      const delta = cToNum(joinFeesPaidAmount) - prevPaid;
+      let commissionNote = '';
+
+      if (delta !== 0) {
+        let txId = null;
+        try {
+          const txRef = await createData(
+            `/users/${user.uid}/programs/${programId}/joinFeesTransactions`,
+            {
+              memberId:           memberData.id,
+              memberName:         values.displayName,
+              registrationNumber: memberData.registrationNumber || '',
+              amount:             delta,
+              paymentMode:        'cash',
+              transactionId:      values.joinFeesTxtId || null,
+              note: delta > 0
+                ? 'Join fees updated from member edit'
+                : 'Join fees correction (amount reduced) from member edit',
+              isAdjustment:       delta < 0,
+              previousPaidAmount: prevPaid,
+              newPaidAmount:      cToNum(joinFeesPaidAmount),
+              paymentDate:        new Date(),
+              createdAt:          new Date(),
+              createdBy:          user?.authUid || user?.uid,
+              agentId:            values.addedBy === 'agent' ? values.selectedAgent : null,
+              createdByName:      user?.displayName || 'Admin',
+              source:             'member_edit',
+            }
+          );
+          txId = txRef?.id || null;
+        } catch (txErr) {
+          console.error('Join fees transaction record failed:', txErr);
+        }
+
+        // Commission sirf BADHI hui raashi par — ghatane par nahi
+        if (delta > 0 && values.addedBy === 'agent' && values.selectedAgent) {
+          const agentObj = agentsList.find(
+            a => a.id === values.selectedAgent || a.uid === values.selectedAgent
+          );
+          if (agentObj && commissionOverride) {
+            const calc = calcJoinFeesCommission(
+              agentObj,
+              { joinFeesCommission: commissionOverride },
+              delta
+            );
+            if (calc.applicable && calc.amount > 0) {
+              try {
+                await createCommissionEntry(user.uid, values.selectedAgent, {
+                  agentName:   agentObj.displayName || '',
+                  agentCode:   agentObj.agentCode || '',
+                  programId,
+                  programName: selectedProgram?.name || '',
+                  sourceType:  COMMISSION_SOURCE.JOIN_FEES,
+                  sourceTransactionId: txId,
+                  sourceCollection: `users/${user.uid}/programs/${programId}/joinFeesTransactions`,
+                  memberId:    memberData.id,
+                  memberName:  values.displayName,
+                  memberRegistrationNumber: memberData.registrationNumber || '',
+                  baseAmount:  delta,
+                  commissionType: calc.type,
+                  commissionRate: calc.rate,
+                  isCustomAmount: calc.isOverride === true,
+                  amount:      calc.amount,
+                  paymentDate: new Date(),
+                  note:        'Join fees commission (member edit)',
+                  createdBy:   user?.authUid || user?.uid,
+                });
+                commissionNote = ` · एजेंट कमीशन ${fmtMoney(calc.amount)} जोड़ा गया`;
+              } catch (commErr) {
+                console.error('Commission entry failed:', commErr);
+                message.warning('सदस्य अपडेट हो गया, लेकिन एजेंट कमीशन रिकॉर्ड नहीं हो सका।');
+              }
+            }
+          }
+        }
+      }
+
+      message.success(
+        'सदस्य सफलतापूर्वक अपडेट किया गया!' +
+        (delta > 0 ? ` नया भुगतान ${fmtMoney(delta)} दर्ज हुआ${commissionNote}।` : '') +
+        (delta < 0 ? ` ${fmtMoney(Math.abs(delta))} की कमी दर्ज हुई।` : '')
+      );
+
+      // Baseline aage badha do — agar drawer dobara khule (bina data refresh
+      // ke) toh wahi delta dobara count na ho jaye
+      setOriginalJoinFeesPaid(cToNum(joinFeesPaidAmount));
+
       setOpen(false);
       
       if (onSuccess) {
@@ -1003,28 +1162,59 @@ console.log(values,'values')
                     </Col>
                   </Row>
 
-                  {/* Display payment summary */}
-                  {(joinFeesPaymentType === 'full' || 
+                  {/* ── Naya vs purana — delta ka hisaab ── */}
+                  {(joinFeesPaymentType === 'full' ||
                     (joinFeesPaymentType === 'custom' && customJoinFeesAmount > 0)) && (
-                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                    <div
+                      className="mt-2 p-3 rounded"
+                      style={{
+                        background: joinFeesDelta > 0 ? '#f6ffed' : joinFeesDelta < 0 ? '#fff2f0' : '#e6f4ff',
+                        border: `1px solid ${joinFeesDelta > 0 ? '#b7eb8f' : joinFeesDelta < 0 ? '#ffccc7' : '#91caff'}`,
+                      }}
+                    >
                       <Text strong>भुगतान सारांश:</Text>
-                      <div className="mt-1">
+                      <div className="mt-1" style={{ lineHeight: 1.9 }}>
                         <Text>कुल नामांकन शुल्क: ₹{joinFees}</Text>
                         <br />
-                        <Text type="success">
-                          भुगतान राशि: ₹
-                          {joinFeesPaymentType === 'full' 
-                            ? joinFees 
-                            : customJoinFeesAmount || 0}
-                        </Text>
-                        {joinFeesPaymentType === 'custom' && 
-                         customJoinFeesAmount > 0 && 
-                         customJoinFeesAmount < joinFees && (
+                        <Text type="secondary">पहले जमा था: {fmtMoney(originalJoinFeesPaid)}</Text>
+                        <br />
+                        <Text>अब कुल जमा: <strong>{fmtMoney(newJoinFeesPaid)}</strong></Text>
+                        <br />
+
+                        {joinFeesDelta > 0 && (
+                          <>
+                            <Text type="success">
+                              नया भुगतान: <strong>{fmtMoney(joinFeesDelta)}</strong>
+                              {' '}— इसका transaction record बनेगा
+                            </Text>
+                            {selectedAgentObj && editCommissionCalc.applicable && (
+                              <>
+                                <br />
+                                <Text style={{ color: '#b45309' }}>
+                                  एजेंट कमीशन: <strong>{fmtMoney(editCommissionCalc.amount)}</strong>
+                                  {' '}({selectedAgentObj.displayName})
+                                </Text>
+                              </>
+                            )}
+                          </>
+                        )}
+
+                        {joinFeesDelta < 0 && (
+                          <Text type="danger">
+                            राशि <strong>{fmtMoney(Math.abs(joinFeesDelta))}</strong> घटाई जा रही है —
+                            सुधार का record बनेगा, कमीशन नहीं बनेगा।
+                            {' '}पहले दिया गया कमीशन अपने आप वापस नहीं होगा।
+                          </Text>
+                        )}
+
+                        {joinFeesDelta === 0 && (
+                          <Text type="secondary">राशि में कोई बदलाव नहीं — नया record नहीं बनेगा।</Text>
+                        )}
+
+                        {joinFeesRemainingNow > 0 && (
                           <>
                             <br />
-                            <Text type="danger">
-                              बकाया राशि: ₹{joinFees - customJoinFeesAmount}
-                            </Text>
+                            <Text type="warning">बकाया राशि: {fmtMoney(joinFeesRemainingNow)}</Text>
                           </>
                         )}
                       </div>
@@ -1320,6 +1510,20 @@ console.log(values,'values')
                       ))}
                     </Select>
                   </Form.Item>
+                </Col>
+              )}
+
+              {/* Agent ka commission — is member ke liye yahin badla ja sakta hai */}
+              {addedBy === 'agent' && selectedAgentObj && (
+                <Col span={24}>
+                  {/* Commission sirf NAYE payment (delta) par banta hai */}
+                  <MemberCommissionCard
+                    agent={selectedAgentObj}
+                    joinFees={joinFees}
+                    paidNow={Math.max(0, joinFeesDelta)}
+                    value={commissionOverride}
+                    onChange={setCommissionOverride}
+                  />
                 </Col>
               )}
             </Row>

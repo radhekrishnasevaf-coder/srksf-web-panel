@@ -9,6 +9,8 @@ import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { setAgentList, setgetAgentDataChange, setPrograms, setSelectedProgram } from '@/redux/slices/commonSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { FiLayers } from 'react-icons/fi';
+import NoAccess from './NoAccess';
+import { screenForPath, canViewScreen } from '@/lib/permissions';
 
 // ─── Skeleton loader ────────────────────────────────────────────────────────
 const SkeletonRow = ({ w = 'w-full', h = 'h-4', className = '' }) => (
@@ -211,6 +213,11 @@ export default function CustomDashboardLayout({ children }) {
   if (withoutLayout.includes(pathname)) return children;
   if (!user) return null;
 
+  // Route guard — sidebar chhupana kaafi nahi, koi seedha URL bhi type
+  // kar sakta hai. Jis screen ka view permission nahi, wo khulegi hi nahi.
+  const currentScreen = screenForPath(pathname);
+  const screenBlocked = currentScreen && !canViewScreen(user, currentScreen.key);
+
   return (
     <>
       <style>{`
@@ -373,7 +380,7 @@ export default function CustomDashboardLayout({ children }) {
           />
           <main className="page-content">
             <div className="page-card">
-              {children}
+              {screenBlocked ? <NoAccess screen={currentScreen} /> : children}
             </div>
           </main>
         </div>

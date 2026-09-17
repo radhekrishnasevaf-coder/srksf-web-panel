@@ -26,6 +26,12 @@ import {
   RocketOutlined
 } from '@ant-design/icons';
 import { createSearchIndex } from '@/lib/commonFun';
+import {
+  calcCommission,
+  createCommissionEntry,
+  COMMISSION_SOURCE,
+  toNum as cToNum,
+} from '@/lib/services/commissionService';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -44,6 +50,7 @@ const AddPaymentModal = () => {
     const [loading, setLoading] = useState(false);
     const { user } = useAuth();
     const programList = useSelector((state) => state.data.programList);
+    const agentsList = useSelector((state) => state.data.agentsList) || [];
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [selectedMarriages, setSelectedMarriages] = useState([]);
     const [selectedMember, setSelectedMember] = useState(null);
@@ -345,7 +352,43 @@ const AddPaymentModal = () => {
                     `/users/${user.uid}/programs/${selectedProgram.id}/transactions`,
                     transactionData
                 );
-                
+
+                // ── Agent commission (payer ke agent ko) ─────────────────
+                const payerAgent = member?.agentId
+                    ? agentsList.find(a => a.id === member.agentId || a.uid === member.agentId)
+                    : null;
+                if (payerAgent) {
+                    const baseAmt = cToNum(transactionData.amount);
+                    const calc = calcCommission(payerAgent, COMMISSION_SOURCE.CLOSING, baseAmt);
+                    if (calc.applicable) {
+                        try {
+                            await createCommissionEntry(user.uid, payerAgent.id || payerAgent.uid, {
+                                agentName:   payerAgent.displayName || '',
+                                agentCode:   payerAgent.agentCode || '',
+                                programId:   selectedProgram.id,
+                                programName: selectedProgram.name || '',
+                                sourceType:  COMMISSION_SOURCE.CLOSING,
+                                sourceTransactionId: transactionId?.id || null,
+                                sourceCollection: `users/${user.uid}/programs/${selectedProgram.id}/transactions`,
+                                memberId:    member?.id || selectedMember,
+                                memberName:  member?.displayName || '',
+                                memberRegistrationNumber: member?.registrationNumber || '',
+                                closingMemberId:   marriageId,
+                                closingMemberName: marriage?.displayName || '',
+                                baseAmount:  baseAmt,
+                                commissionType: calc.type,
+                                commissionRate: calc.rate,
+                                amount:      calc.amount,
+                                paymentDate: dayjs(values.paymentDate).toDate(),
+                                note:        'Closing payment commission',
+                                createdBy:   user.uid,
+                            });
+                        } catch (commErr) {
+                            console.error('Commission entry failed:', commErr);
+                        }
+                    }
+                }
+
                 transactions.push({
                     marriageId,
                     payerId: selectedMember,

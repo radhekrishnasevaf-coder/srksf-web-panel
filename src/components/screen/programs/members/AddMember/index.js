@@ -28,6 +28,17 @@ import { checkAadhaarExists, createMemberInTransaction, generateUnique4Digit, se
 import { districtsByState, gender, states } from '@/lib/staticData';
 import { setgetMemberDataChange } from '@/redux/slices/commonSlice';
 import { createMemberAccount, generateMemberPassword } from '@/lib/commonFun';
+import {
+  calcJoinFeesCommission,
+  createCommissionEntry,
+  buildMemberJoinFeesOverride,
+  getCommissionConfig,
+  COMMISSION_SOURCE,
+  COMMISSION_TYPE,
+  toNum as cToNum,
+} from '@/lib/services/commissionService';
+import MemberCommissionCard from '@/components/common/commission/MemberCommissionCard';
+import Can from '@/components/base/Can';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -43,6 +54,12 @@ const AddMember = () => {
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
   const [isJoinFeesDone, setIsJoinFeesDone] = useState(false);
+  // Is member ke liye agent ka join-fees commission override.
+  // null rehta hai jab tak agent select na ho; select hote hi agent ki
+  // default rate se seed ho jata hai (MemberCommissionCard me dikhta hai).
+  const [commissionOverride, setCommissionOverride] = useState(null);
+  const watchedAgentId = Form.useWatch('selectedAgent', form);
+
   // Age and payment states
   const [selectedAgeGroup, setSelectedAgeGroup] = useState(null);
   const [payAmount, setPayAmount] = useState(0);
@@ -455,6 +472,42 @@ const [closingDays, setClosingDays] = useState(null);
     return findAgent?.firbaseToken;
   };
 
+  // ── Join fees commission helpers ────────────────────────────────────────
+  const selectedAgentId = watchedAgentId;
+  const selectedAgentObj = addedBy === 'agent'
+    ? agentsList.find(a => a.id === selectedAgentId || a.uid === selectedAgentId) || null
+    : null;
+
+  // member add ke waqt kitni join fees actually paid ho rahi hai
+  const joinFeesPaidNow = !isJoinFeesDone
+    ? 0
+    : joinFeesPaymentType === 'full'
+      ? cToNum(joinFees)
+      : cToNum(customJoinFeesAmount);
+
+  // Agent select hote hi override ko uski default rate se seed kar do,
+  // aur agent hata dene par saaf kar do.
+  useEffect(() => {
+    if (!selectedAgentObj) {
+      setCommissionOverride(null);
+      return;
+    }
+    const cfg = getCommissionConfig(selectedAgentObj);
+    setCommissionOverride({
+      enabled: true,
+      isCustom: false,
+      type: cfg.joinFees.type || COMMISSION_TYPE.PERCENTAGE,
+      value: cfg.joinFees.value,
+    });
+  }, [selectedAgentObj?.id]);
+
+  // Is member par actual banne wala commission (override ko respect karta hai)
+  const commissionCalc = calcJoinFeesCommission(
+    selectedAgentObj,
+    { joinFeesCommission: commissionOverride },
+    joinFeesPaidNow
+  );
+
   // Form submission
   const onFinish = async (values) => {
     setLoading(true);
@@ -616,6 +669,13 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
         addedBy: values.addedBy,
         addedByName: values.addedBy === 'agent' ? agentName : 'Admin',
         agentId: values.addedBy === 'agent' ? values.selectedAgent : null,
+        // Is member ke liye agent ka join-fees commission override.
+        // Baad me jab join fees collect hogi, tab agent default ki jagah
+        // yahi use hoga (calcJoinFeesCommission isko padhta hai).
+        joinFeesCommission:
+          values.addedBy === 'agent' && commissionOverride
+            ? buildMemberJoinFeesOverride(commissionOverride)
+            : null,
         delete_flag: false,
         active_flag: true,
         isBlocked: false,
@@ -665,6 +725,81 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
 //   );
 // }
 
+      // ── Join fees transaction + agent commission ────────────────────────
+      const paidNow = values?.joinFeesPaymentType === 'custom'
+        ? cToNum(values?.customJoinFeesAmount)
+        : (values?.joinFeesPaymentType === 'full' ? cToNum(joinFees) : 0);
+
+      if (values?.joinFeesDone && paidNow > 0) {
+        let joinFeesTxRefId = null;
+        try {
+          const txRef = await createData(
+            `/users/${user.uid}/programs/${values.program}/joinFeesTransactions`,
+            {
+              memberId:           result.id,
+              memberName:         values.displayName,
+              registrationNumber: result.registrationNumber || '',
+              amount:             paidNow,
+              paymentMode:        'cash',
+              transactionId:      values?.joinFeesTxtId || null,
+              note:               'Join fees collected at registration',
+              paymentDate:        values.dateJoin ? values.dateJoin.toDate() : new Date(),
+              createdAt:          new Date(),
+              createdBy:          user?.uid,
+              agentId:            agentIdToUpdate || null,
+              createdByName:      agentIdToUpdate ? agentName : (user?.displayName || 'Admin'),
+              source:             'member_registration',
+            }
+          );
+          joinFeesTxRefId = txRef?.id || null;
+        } catch (txErr) {
+          console.error('Join fees transaction record failed:', txErr);
+        }
+
+        // Agent commission
+        const agentObj = agentIdToUpdate
+          ? agentsList.find(a => a.id === agentIdToUpdate || a.uid === agentIdToUpdate)
+          : null;
+
+        if (agentObj) {
+          // Member ka override respect karo — agent default nahi
+          const calc = calcJoinFeesCommission(
+            agentObj,
+            { joinFeesCommission: commissionOverride },
+            paidNow
+          );
+          const finalAmount = calc.amount;
+
+          if (calc.applicable && finalAmount > 0) {
+            try {
+              await createCommissionEntry(user.uid, agentIdToUpdate, {
+                agentName:   agentObj.displayName || '',
+                agentCode:   agentObj.agentCode || '',
+                programId:   values.program,
+                programName: selectedProgram?.name || '',
+                sourceType:  COMMISSION_SOURCE.JOIN_FEES,
+                sourceTransactionId: joinFeesTxRefId,
+                sourceCollection: `users/${user.uid}/programs/${values.program}/joinFeesTransactions`,
+                memberId:    result.id,
+                memberName:  values.displayName,
+                memberRegistrationNumber: result.registrationNumber || '',
+                baseAmount:  paidNow,
+                commissionType: calc.type,
+                commissionRate: calc.rate,
+                isCustomAmount: calc.isOverride === true,
+                amount:      finalAmount,
+                paymentDate: values.dateJoin ? values.dateJoin.toDate() : new Date(),
+                note:        'Join fees commission (member registration)',
+                createdBy:   user?.uid,
+              });
+            } catch (commErr) {
+              console.error('Commission entry failed:', commErr);
+              message.warning('सदस्य जुड़ गया, लेकिन एजेंट कमीशन रिकॉर्ड नहीं हो सका।');
+            }
+          }
+        }
+      }
+
       const agentToken = getAgentToken(agentIdToUpdate);
 
       if (agentToken) {
@@ -682,6 +817,9 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
       dispatch(setgetMemberDataChange(true));
       setOpen(false);
       form.resetFields();
+      setCommissionOverride(null);
+      setIsJoinFeesDone(false);
+      setJoinFeesPaymentType(null);
     } catch (error) {
       console.error('सदस्य जोड़ने में त्रुटि:', error);
       message.error('सदस्य जोड़ने में विफल। कृपया पुनः प्रयास करें।');
@@ -698,15 +836,17 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
 
   return (
     <div>
-      <Button
-        onClick={() => setOpen(true)}
-        type="primary"
-        icon={<PlusOutlined />}
-        size="medium"
-        className='!bg-green-700'
-      >
-       ADD MEMBER
-      </Button>
+      <Can screen="members" action="create">
+        <Button
+          onClick={() => setOpen(true)}
+          type="primary"
+          icon={<PlusOutlined />}
+          size="medium"
+          className='!bg-green-700'
+        >
+         ADD MEMBER
+        </Button>
+      </Can>
 
       <Drawer
         title={<Title level={4} style={{ margin: 0 }}>ADD NEW MEMBER</Title>}
@@ -1429,6 +1569,20 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
                       </Form.Item>
                     </Col>
                   )}
+
+                  {/* Agent select karte hi uska commission yahin dikhega,
+                      aur is member ke liye badla bhi ja sakta hai */}
+                  {addedBy === 'agent' && selectedAgentObj && (
+                    <Col span={24}>
+                      <MemberCommissionCard
+                        agent={selectedAgentObj}
+                        joinFees={joinFees}
+                        paidNow={joinFeesPaidNow}
+                        value={commissionOverride}
+                        onChange={setCommissionOverride}
+                      />
+                    </Col>
+                  )}
                 </Row>
 
    {/* Join Fees Section */}
@@ -1569,6 +1723,7 @@ joinFeesRemainingAmount: values?.joinFeesPaymentType === 'custom' && values?.cus
           </div>
         </div>
       )}
+
     </>
   )}
 </Card>

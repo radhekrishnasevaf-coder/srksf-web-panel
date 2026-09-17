@@ -1,12 +1,17 @@
 import {
-    Drawer, Button, Form, Select, DatePicker, Input, Space, Tag, Tooltip
+    Drawer, Button, Form, Select, DatePicker, Input, Space, Tag, Tooltip, Checkbox
 } from 'antd'
 import {
     DollarOutlined, CheckCircleOutlined, ClockCircleOutlined,
     InfoCircleOutlined, CloseOutlined, WalletOutlined, BankOutlined,
     QrcodeOutlined, TeamOutlined, SwapRightOutlined
 } from '@ant-design/icons'
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import {
+    calcJoinFeesCommission,
+    rateLabel,
+    toNum,
+} from '@/lib/services/commissionService'
 
 const { Option } = Select
 const { TextArea } = Input
@@ -60,26 +65,147 @@ const AllocBadge = ({ amount, maxAmount }) => {
     )
 }
 
+const CommissionRow = ({ plan, onToggle, onAmountChange, onReset }) => {
+    if (!plan || !plan.agent) return null
+
+    return (
+        <div style={{
+            marginTop: 8,
+            marginLeft: 42,
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            background: plan.enabled ? '#fffbeb' : '#f9fafb',
+            border: `1px dashed ${plan.enabled ? '#fcd34d' : '#e5e7eb'}`,
+            borderRadius: 8,
+            padding: '6px 10px',
+        }}>
+            <Checkbox
+                checked={plan.enabled}
+                disabled={!plan.allowed}
+                onChange={e => onToggle(e.target.checked)}
+            >
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#92400e' }}>
+                    Agent commission
+                </span>
+            </Checkbox>
+
+            <span style={{ fontSize: 11, color: '#a16207', whiteSpace: 'nowrap' }}>
+                {plan.agent.displayName || plan.agent.name || 'Agent'}
+                {plan.allowed ? ` · ${rateLabel(plan.type, plan.rate)}` : ' · commission off'}
+                {plan.fromMemberRule && plan.allowed && (
+                    <Tooltip title="Ye rate is member par set ki gayi thi (member add karte waqt), agent ki default rate nahi">
+                        <span style={{
+                            marginLeft: 5, padding: '1px 5px', borderRadius: 4,
+                            background: '#fde68a', color: '#78350f', fontSize: 9.5, fontWeight: 700,
+                        }}>
+                            MEMBER RATE
+                        </span>
+                    </Tooltip>
+                )}
+            </span>
+
+            {plan.enabled && (
+                <>
+                    <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                        <span style={{
+                            position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                            fontSize: 11, color: '#92400e', pointerEvents: 'none', zIndex: 1,
+                        }}>₹</span>
+                        <input
+                            type="number"
+                            min={0}
+                            value={plan.amount}
+                            onChange={e => onAmountChange(e.target.value)}
+                            style={{
+                                width: 96, height: 26,
+                                border: '1px solid #fcd34d', borderRadius: 6,
+                                paddingLeft: 20, paddingRight: 6,
+                                fontSize: 12, fontWeight: 700, color: '#92400e',
+                                background: '#fff', outline: 'none',
+                            }}
+                        />
+                    </div>
+                    {plan.isCustom && (
+                        <button
+                            onClick={onReset}
+                            style={{
+                                fontSize: 10, color: '#92400e', background: 'none', border: 'none',
+                                cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: 2,
+                            }}
+                        >
+                            reset to {rateLabel(plan.type, plan.rate)}
+                        </button>
+                    )}
+                </>
+            )}
+        </div>
+    )
+}
+
 // ─── Main PaymentModal ─────────────────────────────────────────────────────────
 
 const PaymentModal = ({
     open, onCancel, onSubmit, submitting,
-    selectedMembers, form, agentData,
+    selectedMembers, form, agentData, resolveAgent,
 }) => {
     const [mode, setMode] = useState(null)
 
     // per-member allocation amounts (keyed by member index)
     const [allocations, setAllocations] = useState({})
 
-    // when members change, seed allocations to full dues
+    // per-member commission plan (keyed by member index)
+    const [commissions, setCommissions] = useState({})
+
+    // agar member ka apna agent mile toh wahi, warna screen ka selected agent
+    const agentFor = useCallback((member) => {
+        if (typeof resolveAgent === 'function') {
+            const a = resolveAgent(member)
+            if (a) return a
+        }
+        return agentData || null
+    }, [resolveAgent, agentData])
+
+    // Commission plan banata hai — allocation amount par based.
+    // Member par agar add karte waqt custom rate set ki thi (member.joinFeesCommission),
+    // toh calcJoinFeesCommission wahi use karta hai, agent default nahi.
+    const buildPlan = useCallback((member, payAmount, prev) => {
+        const agent = agentFor(member)
+        if (!agent) return null
+        const calc = calcJoinFeesCommission(agent, member, payAmount)
+        const autoAmount = calc.amount
+
+        // user ne is screen par manually amount badla ho toh usko preserve karo
+        const isCustom = prev?.isCustom === true
+        return {
+            agentId: agent.id || agent.uid,
+            agent,
+            allowed: calc.applicable || calc.reason === 'zero-amount',
+            enabled: prev ? prev.enabled : calc.applicable,
+            type: calc.type,
+            rate: calc.rate,
+            // member par save ki hui custom rate se aaya hai?
+            fromMemberRule: calc.isOverride === true,
+            autoAmount,
+            amount: isCustom ? toNum(prev.amount) : autoAmount,
+            isCustom,
+        }
+    }, [agentFor])
+
+    // selection badalne par allocations aur commission plans dobara seed karo
+    const membersKey = selectedMembers.map(m => m.id).join(',')
+
     useEffect(() => {
         if (!open) return
         const init = {}
+        const initComm = {}
         selectedMembers.forEach((m, i) => {
-            init[i] = getRemaining(m)
+            const due = getRemaining(m)
+            init[i] = due
+            initComm[i] = buildPlan(m, due, null)
         })
         setAllocations(init)
-    }, [open, selectedMembers.length])
+        setCommissions(initComm)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, membersKey])
 
     const totalAllocated = useMemo(
         () => Object.values(allocations).reduce((s, v) => s + (Number(v) || 0), 0),
@@ -95,10 +221,52 @@ const PaymentModal = ({
         const max = getRemaining(selectedMembers[idx])
         const val = Math.min(Math.max(0, Number(raw) || 0), max)
         setAllocations(prev => ({ ...prev, [idx]: val }))
+        setCommissions(prev => ({
+            ...prev,
+            [idx]: buildPlan(selectedMembers[idx], val, prev[idx]),
+        }))
     }
 
+    const toggleCommission = (idx, checked) => {
+        setCommissions(prev => ({
+            ...prev,
+            [idx]: prev[idx] ? { ...prev[idx], enabled: checked } : prev[idx],
+        }))
+    }
+
+    const setCommissionAmount = (idx, raw) => {
+        const val = Math.max(0, Number(raw) || 0)
+        setCommissions(prev => ({
+            ...prev,
+            [idx]: prev[idx] ? { ...prev[idx], amount: val, isCustom: true } : prev[idx],
+        }))
+    }
+
+    const resetCommission = (idx) => {
+        setCommissions(prev => ({
+            ...prev,
+            [idx]: prev[idx]
+                ? { ...prev[idx], amount: prev[idx].autoAmount, isCustom: false }
+                : prev[idx],
+        }))
+    }
+
+    const totalCommission = useMemo(
+        () => Object.entries(commissions).reduce((sum, [idx, plan]) => {
+            if (!plan || !plan.enabled) return sum
+            if (toNum(allocations[idx]) <= 0) return sum
+            return sum + toNum(plan.amount)
+        }, 0),
+        [commissions, allocations]
+    )
+
+    const hasCommission = useMemo(
+        () => Object.values(commissions).some(p => p && p.agent),
+        [commissions]
+    )
+
     const handleSubmit = () => {
-        onSubmit(allocations)
+        onSubmit(allocations, commissions)
     }
 
     // bar color
@@ -161,6 +329,9 @@ const PaymentModal = ({
                     <StatPill label="Members"    value={selectedMembers.length}       bg="#eff6ff" border="#bfdbfe" textColor="#1d4ed8" />
                     <StatPill label="Total due"  value={fmt(totalDue)}                bg="#fff5f5" border="#fecaca" textColor="#b91c1c" />
                     <StatPill label="Allocating" value={fmt(totalAllocated)}          bg="#f0fdf4" border="#bbf7d0" textColor="#15803d" />
+                    {hasCommission && (
+                        <StatPill label="Commission" value={fmt(totalCommission)}    bg="#fffbeb" border="#fde68a" textColor="#b45309" />
+                    )}
                 </div>
 
                 {/* ── Allocation banner ── */}
@@ -276,6 +447,14 @@ const PaymentModal = ({
                                         )}
                                     </div>
                                 </div>
+
+                                {/* agent commission */}
+                                <CommissionRow
+                                    plan={allocAmt > 0 ? commissions[idx] : null}
+                                    onToggle={(checked) => toggleCommission(idx, checked)}
+                                    onAmountChange={(v) => setCommissionAmount(idx, v)}
+                                    onReset={() => resetCommission(idx)}
+                                />
                             </div>
                         )
                     })}
@@ -301,6 +480,22 @@ const PaymentModal = ({
                             )}
                         </div>
                     </div>
+
+                    {/* ── Commission total ── */}
+                    {hasCommission && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '9px 14px', background: '#fffbeb',
+                            borderTop: '1px solid #fde68a',
+                        }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
+                                Agent commission (payable)
+                            </span>
+                            <span style={{ fontSize: 16, fontWeight: 800, color: '#b45309' }}>
+                                {fmt(totalCommission)}
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Divider ── */}

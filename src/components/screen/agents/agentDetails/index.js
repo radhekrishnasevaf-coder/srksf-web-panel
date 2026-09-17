@@ -8,6 +8,7 @@ import AgentMembers from './component/AgentMembers';
 import MemberPayStatus from './MemberPaystatus/MemberPayStatus';
 import AllPaymentStatus from './component/AllPaymentStatus/AllPaymentStatus';
 import Transactions from './component/Transactions';
+import AgentCommission from './component/Commission/AgentCommission';
 const { TabPane } = Tabs;
 const { Search } = Input;
 const { Title, Text } = Typography;
@@ -163,6 +164,9 @@ const AgentDetails = ({selectedAgent,isViewModalVisible,setIsViewModalVisible}) 
             </TabPane>
             <TabPane tab="Transactions" key="6">
             <Transactions  agentId={selectedAgent.id} agentInfo={selectedAgent} />
+            </TabPane>
+            <TabPane tab="Commission" key="7">
+            <AgentCommission agentId={selectedAgent.id} agentInfo={selectedAgent} />
             </TabPane>
           </Tabs>
         )}

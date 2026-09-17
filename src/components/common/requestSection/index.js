@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, memo } from 'react';
 import { FiBell, FiEye, FiCheck, FiX, FiTrash2, FiPhone, FiUser, FiCalendar, FiCreditCard, FiRefreshCw, FiSearch, FiEdit2 } from 'react-icons/fi';
 import { getData, updateData } from '@/lib/services/firebaseService';
 import { useAuth } from '@/lib/AuthProvider';
+import { useCan } from '@/components/base/Can';
 import { useDispatch, useSelector } from 'react-redux';
 import { UserOutlined, PhoneOutlined, HomeOutlined, FileOutlined, CalendarOutlined, MailOutlined, IdcardOutlined, EnvironmentOutlined, ContactsOutlined, DollarOutlined, FilePdfOutlined, LockOutlined, EyeOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Drawer, Button, Input, Modal, Card, Avatar, Tabs, Descriptions, Image as AntImage, Spin, Empty, Typography, Form, Checkbox, Tooltip, Tag, Popconfirm, Badge, Divider, App, Select, Radio, Row, Col } from 'antd';
@@ -43,6 +44,7 @@ const RequestSection = () => {
   
   const dispatch = useDispatch();
   const { user } = useAuth();
+  const canDo = useCan();
   const selectedProgram = useSelector((state) => state.data.selectedProgram);
   const programList = useSelector((state) => state.data.programList);
   const agentsList = useSelector((state) => state.data.agentsList);
@@ -394,23 +396,25 @@ ${values.joinFeesDone ? `Join Fees: ₹${joinFeesPaidAmount}` : 'Join Fees: Pend
       key={`${member.programId}-${member.id}`}
       className="mb-4 shadow-sm border-l-4 border-l-blue-500 hover:shadow-md transition-shadow"
       actions={[
-        <Tooltip title="Accept Request">
+        <Tooltip title={canDo('requests', 'approve') ? 'Accept Request' : 'Accept karne ki anumati nahi hai'}>
           <Button 
             type="primary" 
             onClick={() => showAcceptModal(member)} 
             className="bg-green-500 hover:bg-green-600 border-green-500"
             icon={<FiCheck />}
             size="small"
+            disabled={!canDo('requests', 'approve')}
           >
             Accept
           </Button>
         </Tooltip>,
-        <Tooltip title="Reject Request">
+        <Tooltip title={canDo('requests', 'reject') ? 'Reject Request' : 'Reject karne ki anumati nahi hai'}>
           <Button 
             danger 
             onClick={() => showRejectModal(member)}
             icon={<FiX />}
             size="small"
+            disabled={!canDo('requests', 'reject')}
           >
             Reject
           </Button>
