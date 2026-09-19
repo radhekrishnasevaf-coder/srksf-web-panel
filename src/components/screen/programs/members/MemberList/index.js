@@ -14,13 +14,14 @@ import { MdOutlinePendingActions } from 'react-icons/md';
 import { GrCertificate } from 'react-icons/gr';
 import {
     Avatar, Button, Dropdown, Tag, Tooltip, Select,
-    DatePicker, Modal, Badge, Divider, message
+    DatePicker, Modal, Badge, Divider, App
 } from 'antd';
 import { useDispatch, useSelector } from 'react-redux';
 import { getData } from '@/lib/services/firebaseService';
 import {
     getCertificateStatus,
     markManyCertificatesDownloaded,
+    triggerBlobDownload,
 } from '@/lib/services/certificateService';
 import { useAuth } from '@/lib/AuthProvider';
 import Can, { useCan } from '@/components/base/Can';
@@ -145,6 +146,10 @@ const MemberList = () => {
     const { agentsList }     = useSelector(s => s.data);
     const { user }           = useAuth();
     const canDo              = useCan();
+    // React 19 me antd ke STATIC message/Modal.confirm chalte hi nahi
+    // (@ant-design/v5-patch-for-react-19 install nahi hai). App.useApp()
+    // wale context-aware versions sahi kaam karte hain.
+    const { message, modal } = App.useApp();
     const gridRef            = useRef();
 
     const [windowWidth, setWindowWidth] = useState(
@@ -491,7 +496,7 @@ const MemberList = () => {
         const already = membersArray.filter(m => getCertificateStatus(m).downloaded);
         if (already.length > 0) {
             const proceed = await new Promise(resolve => {
-                Modal.confirm({
+                modal.confirm({
                     title: `${already.length} सदस्यों का certificate पहले ही डाउनलोड हो चुका है`,
                     width: 520,
                     content: (
@@ -549,23 +554,28 @@ const MemberList = () => {
             });
 
             const data = await response.json();
-            
+
+            // Server ne error bheja ho toh asli wajah dikhao —
+            // warna atob(undefined) crash hota tha aur "Failed" ke alawa
+            // kuch pata nahi chalta tha
+            if (!response.ok || !data?.base64) {
+                throw new Error(data?.error || `PDF generate nahi hua (HTTP ${response.status})`);
+            }
+
             const binaryString = atob(data.base64);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
-            
+
             const blob = new Blob([bytes], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            
-            // Open in new tab instead of downloading
-            window.open(url, '_blank');
-            
-            // Clean up after a delay
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-            }, 100);
+
+            // Pehle window.open() se naye tab me kholte the — par fetch ke
+            // await ke baad browser use popup maan kar block kar deta hai,
+            // isliye click karne par kuch hota hi nahi tha. Ab seedha
+            // download trigger hota hai (<a download>), jo block nahi hota.
+            const fileName = `Certificates_${(selectedProgram?.name || 'Program').replace(/\s+/g, '_')}_${dayjs().format('DDMMYYYY_HHmm')}.pdf`;
+            triggerBlobDownload(blob, fileName);
             
             // Sabhi members par download ka nishan lagao
             const marked = await markManyCertificatesDownloaded(
@@ -576,14 +586,14 @@ const MemberList = () => {
             );
 
             message.success(
-                `Certificate generated successfully!` +
-                (marked ? ` ${marked} सदस्यों पर डाउनलोड मार्क हो गया।` : '')
+                `${membersArray.length} certificate download ho gaye` +
+                (marked ? ` · ${marked} सदस्यों पर मार्क लग गया` : '')
             );
             onGridReady();
 
         } catch (error) {
-            console.error('Error:', error);
-            message.error('Failed to generate certificates. Please try again.');
+            console.error('Certificate generation failed:', error);
+            message.error(error?.message || 'Failed to generate certificates. Please try again.');
         } finally {
             loadingMessage();
             setIsCertDownloading(false);

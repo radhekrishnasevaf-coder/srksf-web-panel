@@ -1,4 +1,9 @@
 
+// React 19 ke saath antd v5 ke STATIC methods (message.xxx, Modal.confirm,
+// notification.xxx) kaam nahi karte — wo hata diye gaye ReactDOM.render par
+// tike the. Ye patch unhe React 19 par chalata hai. Ise sabse pehle import
+// karna zaroori hai, antd use hone se pehle.
+import '@ant-design/v5-patch-for-react-19';
 import { Geist, Geist_Mono } from "next/font/google";
 import { ConfigProvider, App } from 'antd';
 import "./globals.css";
