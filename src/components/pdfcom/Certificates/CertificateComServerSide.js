@@ -292,13 +292,44 @@ const styles = StyleSheet.create({
     right: 20,
   }
 });
+/**
+ * Amount ko number me badalta hai — Firestore me ye kabhi number, kabhi
+ * string ("1100"), kabhi null/"" ho sakta hai.
+ */
+const toNum = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
+};
+
+/**
+ * Bakaya join fees.
+ *
+ * Pehle ye stored `joinFeesRemainingAmount` par bharosa karta tha, jo teen
+ * tarah se toot'ta tha:
+ *   - null hone par `null !== undefined` TRUE hota tha, aur Math.max(null,0)
+ *     = 0 — yaani bakaya hote hue bhi kuch nahi dikhta tha
+ *   - "" hone par bhi 0 aa jata tha
+ *   - purane/migrate kiye members me ye field hoti hi nahi thi
+ *
+ * Members list (JoinFeesMemberList) hamesha joinFees - paid se ginti hai,
+ * isliye wahan sahi dikhta tha aur certificate me nahi. Ab dono ek hi
+ * tarike se ginte hain.
+ */
+const getPendingJoinFees = (data) => {
+  const total = toNum(data?.joinFees);
+  const paid = toNum(data?.joinFeesPaidAmount);
+
+  // Asli source: kul fees - jama raashi (wahi jo list dikhati hai)
+  if (total > 0) return Math.max(0, total - paid);
+
+  // joinFees hi na ho (purana record) toh stored remaining par gir jao
+  return Math.max(0, toNum(data?.joinFeesRemainingAmount));
+};
+
 const Certificate=({data,selectedProgram,fontPath})=>{
 
-const pendingJoinFees = data?.joinFeesRemainingAmount !== undefined
-  ? Math.max(data.joinFeesRemainingAmount, 0)
-  : !data?.joinFeesDone
-    ? Math.max((data?.joinFees || 0) - (data?.joinFeesPaidAmount || 0), 0)
-    : 0;
+const pendingJoinFees = getPendingJoinFees(data);
  return     <Page size={{ width: '210mm', height: '148mm' }} style={styles.page}>
       <View style={styles.outerBorder}>
         <Text style={styles.serialNumber}>{data?.registrationNumber}</Text>
