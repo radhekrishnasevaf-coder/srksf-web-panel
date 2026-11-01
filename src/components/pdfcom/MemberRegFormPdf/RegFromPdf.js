@@ -317,9 +317,9 @@ watermark: {
   return (num / 100).toFixed(2);
 }
 
-const RegFormPdf = ({data, selectedProgram}) => {
+// Ek member ka Reg Form page — single aur multiple dono PDF me use hota hai
+export const RegFormPage = ({data, selectedProgram}) => {
   return (
-    <Document>
       <Page size="A5" orientation="portrait" style={styles.page}>
         <View style={styles.outerBorder}>
           <Text style={styles.serialNumber}>{data.registrationNumber}</Text>
@@ -538,7 +538,27 @@ const RegFormPdf = ({data, selectedProgram}) => {
           </View>
         </View>
       </Page>
+  );
+};
+
+// Single member ka Reg Form
+const RegFormPdf = ({data, selectedProgram}) => {
+  return (
+    <Document>
+      <RegFormPage data={data} selectedProgram={selectedProgram} />
     </Document>
   );
 };
+
+// Multiple members ke Reg Form — ek hi PDF me, har member ka alag page
+export const RegFormMultiPdf = ({membersData = [], selectedProgram}) => {
+  return (
+    <Document>
+      {membersData.map((member) => (
+        <RegFormPage key={member.id} data={member} selectedProgram={selectedProgram} />
+      ))}
+    </Document>
+  );
+};
+
 export default RegFormPdf;

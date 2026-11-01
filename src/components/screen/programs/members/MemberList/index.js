@@ -138,6 +138,10 @@ const MemberList = () => {
     
     const [isCertDownloading, setIsCertDownloading] = useState(false);
 
+    // multiple Reg Form download
+    const [selectedRows,      setSelectedRows]      = useState([]);
+    const [isRegDownloading,  setIsRegDownloading]  = useState(false);
+
 
     const dispatch           = useDispatch();
     const memberStatusChange = useSelector(s => s.data.getMemberDataChange);
@@ -263,6 +267,9 @@ const MemberList = () => {
     }, [statusFilter, genderFilter, selectedAgentFilter, dateRange, joinFeesFilter, allMembersData, applyFilters]);
 
     useEffect(() => { onGridReady(); }, [selectedProgram, memberStatusChange]);
+
+    // Filter / data badalne par purana selection hata do
+    useEffect(() => { setSelectedRows([]); }, [filteredMembersData]);
 
     useEffect(() => {
         const handleResize = () => setWindowWidth(window.innerWidth);
@@ -599,6 +606,61 @@ const MemberList = () => {
             setIsCertDownloading(false);
         }
     };
+    // ── Multiple Reg Form download (ek PDF, har member ka alag page) ──────────
+    const downloadMultipleRegForms = async (membersArray) => {
+        const list = (membersArray || []).filter(m => m?.delete_flag !== true);
+        if (list.length === 0) {
+            message.warning('Reg Form download ke liye koi member nahi hai');
+            return;
+        }
+
+        if (list.length > 100) {
+            const proceed = await new Promise(resolve => {
+                modal.confirm({
+                    title: `${list.length} सदस्यों का Reg Form बनाना है?`,
+                    content: 'ज़्यादा सदस्य होने पर PDF बनने में कुछ समय लग सकता है।',
+                    okText: 'हाँ, आगे बढ़ें',
+                    cancelText: 'रद्द करें',
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!proceed) return;
+        }
+
+        setIsRegDownloading(true);
+        const loadingMessage = message.loading(`${list.length} Reg Form बन रहे हैं, कृपया प्रतीक्षा करें...`, 0);
+        try {
+            // Browser-only libs — click par hi load karo
+            const [{ pdf }, { RegFormMultiPdf }] = await Promise.all([
+                import('@react-pdf/renderer'),
+                import('@/components/pdfcom/MemberRegFormPdf/RegFromPdf'),
+            ]);
+
+            const membersData = list.map(member => ({
+                ...member,
+                agentPhone: agentsList?.find(a => a.id === member.agentId)?.phone || '',
+            }));
+
+            const blob = await pdf(
+                <RegFormMultiPdf membersData={membersData} selectedProgram={selectedProgram} />
+            ).toBlob();
+
+            const fileName = list.length === 1
+                ? `${(list[0].displayName || 'Member').replaceAll(' ', '_')}_${list[0].registrationNumber || ''}_RegForm.pdf`
+                : `RegForms_${(selectedProgram?.name || 'Program').replace(/\s+/g, '_')}_${list.length}_${dayjs().format('DDMMYYYY_HHmm')}.pdf`;
+            triggerBlobDownload(blob, fileName);
+
+            message.success(`${list.length} Reg Form download ho gaye`);
+        } catch (error) {
+            console.error('Reg Form generation failed:', error);
+            message.error(error?.message || 'Reg Form PDF nahi bana. Dobara koshish karein.');
+        } finally {
+            loadingMessage();
+            setIsRegDownloading(false);
+        }
+    };
+
     // ── render ─────────────────────────────────────────────────────────────────
     return (
         <div>
@@ -679,6 +741,40 @@ const MemberList = () => {
                             {isCertDownloading ? 'Generating...' : 'Download Certificates'}
                         </Button>
                     </Can>
+                    <Can screen="members" action="download">
+                        <Dropdown
+                            trigger={['click']}
+                            disabled={isRegDownloading || filteredMembersData.length === 0}
+                            menu={{
+                                items: [
+                                    {
+                                        key: 'selected',
+                                        disabled: selectedRows.length === 0,
+                                        label: selectedRows.length > 0
+                                            ? `Selected members (${selectedRows.length})`
+                                            : 'Selected members (checkbox se chunein)',
+                                    },
+                                    {
+                                        key: 'all',
+                                        label: `All filtered members (${filteredMembersData.length})`,
+                                    },
+                                ],
+                                onClick: ({ key }) => downloadMultipleRegForms(
+                                    key === 'selected' ? selectedRows : filteredMembersData
+                                ),
+                            }}
+                        >
+                            <Button
+                                icon={<FaFile />}
+                                loading={isRegDownloading}
+                                className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100 hover:border-blue-400 font-medium"
+                            >
+                                {isRegDownloading
+                                    ? 'Generating...'
+                                    : `Download Reg Forms${selectedRows.length ? ` (${selectedRows.length})` : ''}`}
+                            </Button>
+                        </Dropdown>
+                    </Can>
                     <Can screen="members" action="export">
                         <Button
                             icon={<FilePdfOutlined />}
@@ -700,6 +796,15 @@ const MemberList = () => {
                     defaultColDef={defaultColDef}
                     columnDefs={COL_DEFS}
                     pagination={true}
+                    rowSelection={{
+                        mode: 'multiRow',
+                        checkboxes: true,
+                        headerCheckbox: true,
+                        selectAll: 'filtered',
+                        enableClickSelection: false,
+                        isRowSelectable: (node) => node.data?.delete_flag !== true,
+                    }}
+                    onSelectionChanged={(e) => setSelectedRows(e.api.getSelectedRows())}
                     onGridReady={onGridReady}
                     overlayLoadingTemplate='<span class="ag-overlay-loading-center">Loading…</span>'
                     overlayNoRowsTemplate='<span class="ag-overlay-loading-center">No data available</span>'
